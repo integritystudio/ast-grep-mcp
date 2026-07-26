@@ -133,7 +133,7 @@ Workflow: develop_pattern() → find_code() → build_rule() → debug_pattern()
 def _register_dump_syntax_tree(mcp: FastMCP) -> None:
     """Register dump_syntax_tree tool."""
 
-    @mcp.tool()
+    @mcp.tool(description=_DUMP_SYNTAX_TREE_DOC)
     def dump_syntax_tree(
         code: str = Field(description="The code you need"),
         language: str = Field(description=f"The language of the code. Supported: {', '.join(get_supported_languages())}"),
@@ -141,26 +141,22 @@ def _register_dump_syntax_tree(mcp: FastMCP) -> None:
     ) -> str:
         return dump_syntax_tree_impl(code, language, format)
 
-    dump_syntax_tree.__doc__ = _DUMP_SYNTAX_TREE_DOC
-
 
 def _register_test_match_code_rule(mcp: FastMCP) -> None:
     """Register test_match_code_rule tool."""
 
-    @mcp.tool()
+    @mcp.tool(description=_TEST_MATCH_DOC)
     def test_match_code_rule(
         code: str = Field(description="The code to test against the rule"),
         yaml_rule: str = Field(description="The ast-grep YAML rule to search. It must have id, language, rule fields."),
     ) -> List[Dict[str, Any]]:
         return test_match_code_rule_impl(code, yaml_rule)
 
-    test_match_code_rule.__doc__ = _TEST_MATCH_DOC
-
 
 def _register_find_code(mcp: FastMCP) -> None:
     """Register find_code tool."""
 
-    @mcp.tool()
+    @mcp.tool(description=_FIND_CODE_DOC)
     def find_code(
         project_folder: str = Field(description="The absolute path to the project folder. It must be absolute path."),
         pattern: str = Field(description="The ast-grep pattern to search for. Note, the pattern must have valid AST structure."),
@@ -190,13 +186,11 @@ def _register_find_code(mcp: FastMCP) -> None:
             workers,
         )
 
-    find_code.__doc__ = _FIND_CODE_DOC
-
 
 def _register_find_code_by_rule(mcp: FastMCP) -> None:
     """Register find_code_by_rule tool."""
 
-    @mcp.tool()
+    @mcp.tool(description=_FIND_CODE_BY_RULE_DOC)
     def find_code_by_rule(
         project_folder: str = Field(description="The absolute path to the project folder. It must be absolute path."),
         yaml_rule: str = Field(description="The ast-grep YAML rule to search. It must have id, language, rule fields."),
@@ -210,13 +204,11 @@ def _register_find_code_by_rule(mcp: FastMCP) -> None:
             output_format,  # type: ignore[arg-type]
         )
 
-    find_code_by_rule.__doc__ = _FIND_CODE_BY_RULE_DOC
-
 
 def _register_debug_pattern(mcp: FastMCP) -> None:
     """Register debug_pattern tool."""
 
-    @mcp.tool()
+    @mcp.tool(description=_DEBUG_PATTERN_DOC)
     def debug_pattern(
         pattern: str = Field(description="The ast-grep pattern to debug"),
         code: str = Field(description="The code to match against"),
@@ -225,21 +217,17 @@ def _register_debug_pattern(mcp: FastMCP) -> None:
         result = debug_pattern_impl(pattern, code, language)
         return result.to_dict()
 
-    debug_pattern.__doc__ = _DEBUG_PATTERN_DOC
-
 
 def _register_get_ast_grep_docs(mcp: FastMCP) -> None:
     """Register get_ast_grep_docs tool."""
 
-    @mcp.tool()
+    @mcp.tool(description=_GET_DOCS_DOC)
     def get_ast_grep_docs(
         topic: Literal["pattern", "rules", "relational", "metavariables", "workflow", "strictness", "all"] = Field(
             description="Documentation topic to retrieve"
         ),
     ) -> str:
         return get_docs(topic)
-
-    get_ast_grep_docs.__doc__ = _GET_DOCS_DOC
 
 
 def _call_build_rule(
@@ -277,7 +265,7 @@ def _call_build_rule(
 def _register_build_rule(mcp: FastMCP) -> None:
     """Register build_rule tool."""
 
-    @mcp.tool()
+    @mcp.tool(description=_BUILD_RULE_DOC)
     def build_rule(
         pattern: str = Field(description="The main pattern to match"),
         language: str = Field(description=f"Target language. Supported: {', '.join(get_supported_languages())}"),
@@ -314,13 +302,11 @@ def _register_build_rule(mcp: FastMCP) -> None:
             fix,
         )
 
-    build_rule.__doc__ = _BUILD_RULE_DOC
-
 
 def _register_get_pattern_examples(mcp: FastMCP) -> None:
     """Register get_pattern_examples tool."""
 
-    @mcp.tool()
+    @mcp.tool(description=_GET_PATTERN_EXAMPLES_DOC)
     def get_pattern_examples_tool(
         language: str = Field(description=f"Target language. Available: {', '.join(PATTERN_LANGUAGES)}"),
         category: Optional[str] = Field(
@@ -331,13 +317,11 @@ def _register_get_pattern_examples(mcp: FastMCP) -> None:
     ) -> str:
         return get_pattern_examples(language, category)
 
-    get_pattern_examples_tool.__doc__ = _GET_PATTERN_EXAMPLES_DOC
-
 
 def _register_develop_pattern(mcp: FastMCP) -> None:
     """Register develop_pattern tool."""
 
-    @mcp.tool()
+    @mcp.tool(description=_DEVELOP_PATTERN_DOC)
     def develop_pattern(
         code: str = Field(description="Sample code you want to match"),
         language: str = Field(description=f"The programming language. Supported: {', '.join(get_supported_languages())}"),
@@ -348,8 +332,6 @@ def _register_develop_pattern(mcp: FastMCP) -> None:
     ) -> Dict[str, Any]:
         result = develop_pattern_impl(code, language, goal)
         return result.to_dict()
-
-    develop_pattern.__doc__ = _DEVELOP_PATTERN_DOC
 
 
 def register_search_tools(mcp: FastMCP) -> None:

@@ -108,8 +108,7 @@ async def collect_tools() -> list[tuple[str, str]]:
     register_all_tools(mcp)
     tools = await mcp.list_tools()
     def first_line(text: str | None) -> str:
-        lines = (text or "").splitlines()
-        return lines[0] if lines else ""
+        return next((line.strip() for line in (text or "").splitlines() if line.strip()), "")
 
     return [(t.name, first_line(t.description)) for t in tools]
 

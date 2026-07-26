@@ -462,7 +462,7 @@ def _register_analyze_complexity(mcp: FastMCP) -> None:
         include_trends: bool = Field(default=False, description="Include historical trend data in response"),
         max_threads: int = Field(default=ParallelProcessing.DEFAULT_WORKERS, description="Number of parallel threads for analysis"),
     ) -> Dict[str, Any]:
-        """Wrapper that calls the standalone analyze_complexity_tool function."""
+        """Analyze cyclomatic, cognitive, nesting, and length complexity for all functions in a project."""
         return analyze_complexity_tool(
             project_folder=project_folder,
             language=language,
@@ -487,7 +487,7 @@ def _register_test_sentry(mcp: FastMCP) -> None:
         ),
         message: str = Field(default="Test message", description="Custom test message"),
     ) -> Dict[str, Any]:
-        """Wrapper that calls the standalone test_sentry_integration_tool function."""
+        """Test Sentry integration by triggering different event types."""
         return test_sentry_integration_tool(test_type=test_type, message=message)
 
 
@@ -516,7 +516,7 @@ def _register_detect_smells(mcp: FastMCP) -> None:
         severity_filter: str = Field(default="all", description="Filter by severity: 'all', 'high', 'medium', 'low'"),
         max_threads: int = Field(default=ParallelProcessing.DEFAULT_WORKERS, description="Number of parallel threads for analysis"),
     ) -> Dict[str, Any]:
-        """Wrapper that calls the standalone detect_code_smells_tool function."""
+        """Detect long functions, parameter bloat, deep nesting, large classes, and magic numbers."""
         return detect_code_smells_tool(
             project_folder=project_folder,
             language=language,

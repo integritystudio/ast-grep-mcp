@@ -239,7 +239,7 @@ def _register_find_duplication(mcp: FastMCP) -> None:
         min_lines: int = Field(default=DeduplicationDefaults.MIN_LINES, description="Minimum lines to consider"),
         exclude_patterns: Optional[List[str]] = Field(default=None, description="Path patterns to exclude"),
     ) -> Dict[str, Any]:
-        """Wrapper that calls the standalone find_duplication_tool function."""
+        """Find duplicate functions/classes/methods in a codebase."""
         return find_duplication_tool(
             project_folder=project_folder,
             language=language,
@@ -266,7 +266,7 @@ def _register_analyze_candidates(mcp: FastMCP) -> None:
             description="Per-candidate enrichment timeout in seconds (default: 30s). Raise this if enrichment is spuriously timing out.",
         ),
     ) -> Dict[str, Any]:
-        """Wrapper that calls the standalone analyze_deduplication_candidates_tool function."""
+        """Analyze a project for deduplication candidates and return ranked results."""
         return analyze_deduplication_candidates_tool(
             project_path=project_path,
             language=language,
@@ -293,7 +293,7 @@ def _register_apply_deduplication(mcp: FastMCP) -> None:
         backup: bool = Field(default=True, description="Create backup before applying changes (default: true)"),
         extract_to_file: Optional[str] = Field(default=None, description="Where to place extracted function (auto-detect if None)"),
     ) -> Dict[str, Any]:
-        """Wrapper that calls the standalone apply_deduplication_tool function."""
+        """Apply automated deduplication refactoring with pre/post validation and auto-rollback."""
         return apply_deduplication_tool(
             project_folder=project_folder,
             group_id=group_id,
@@ -313,7 +313,7 @@ def _register_benchmark_deduplication(mcp: FastMCP) -> None:
         save_baseline: bool = Field(default=False, description="Save results as new baseline for regression detection"),
         check_regression: bool = Field(default=True, description="Check results against baseline for performance regressions"),
     ) -> Dict[str, Any]:
-        """Wrapper that calls the standalone benchmark_deduplication_tool function."""
+        """Run performance benchmarks for deduplication functions."""
         return benchmark_deduplication_tool(iterations=iterations, save_baseline=save_baseline, check_regression=check_regression)
 
 
