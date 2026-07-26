@@ -44,6 +44,8 @@ Modular MCP server (126 modules) with ast-grep structural code search, Schema.or
 
 **59 Tools:** Search (9), Rewrite (5), Refactoring (2), Deduplication (6), Schema.org (11), Complexity (3), Quality (7), Documentation (5), Cross-Language (5), Condense (6)
 
+`make list-tools` enumerates them live from the server registry, grouped by category (`--flat` / `--json` via `uv run python scripts/list_tools.py`).
+
 **Deps:** ast-grep CLI (required), Doppler CLI (optional), Python 3.13+, uv
 
 ## Architecture
