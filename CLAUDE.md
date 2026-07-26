@@ -6,11 +6,37 @@
 uv sync                          # Install dependencies
 uv run pytest                    # Run all tests (1,849 collected)
 uv run pytest tests/unit/        # Unit tests only
-uv run pytest tests/integration/test_benchmark.py  # Benchmarks
+uv run pytest tests/integration/ # Integration tests (slower)
+uv run pytest tests/quality/     # Quality regression tests
+uv run pytest tests/performance/ # Performance benchmarks (slow)
 uv run ruff check . && uv run mypy src/ # Lint and type check
 uv run main.py                   # Run MCP server locally
 doppler run -- uv run main.py    # Run with Doppler secrets
 ```
+
+**Tip:** Use `make help` to see all available commands (or `make <target>` to run tests directly).
+
+## Testing Tips
+
+**Run a single test:** `uv run pytest tests/unit/test_foo.py::TestClass::test_method -v`
+
+**Filter by name:** `uv run pytest -k "cache" -v` (runs tests matching "cache")
+
+**Stop on first failure:** `uv run pytest -x`
+
+**With coverage:** `uv run pytest --cov=src/ast_grep_mcp --cov-report=term-missing`
+
+## Environment Setup
+
+**uv vs bare python:** Always prefix commands with `uv run`. Bare `python` fails with ModuleNotFoundError (see project memory for context).
+
+**Secrets:** Use `doppler run` when working with sensitive APIs (GitHub, Sentry, etc.). For local dev without secrets, set env vars directly: `LOG_LEVEL=debug uv run main.py`.
+
+**Tool language argument:** `analyze_complexity`, `detect_code_smells`, `detect_security_issues` require explicit `language` parameter (not auto-detected).
+
+## Project Memory
+
+See project memory (persisted auto-context in Claude Code) for session-persisted patterns: Python execution quirks, tool parameter requirements, non-obvious gotchas. Updated automatically across sessions; check it when encountering familiar-looking errors.
 
 ## Overview
 
@@ -54,6 +80,12 @@ uv run pytest tests/quality/test_complexity_regression.py -v
 **Environment:** `AST_GREP_CONFIG`, `LOG_LEVEL`, `SENTRY_DSN`, `CACHE_DISABLED`/`CACHE_SIZE`/`CACHE_TTL`
 
 Config loads via **pydantic-settings** — env vars are auto-read and type-coerced on `AstGrepConfig` (`core/config.py`); no manual `os.getenv` needed.
+
+## Caching & Timeouts
+
+**MinHash & CodeBERT similarity caches** (BUG-12, 2026-07-26): Keyed on exact code string (not `hash()`), bounded at 1024 entries via LRU, with move-to-end on hit. Located in `similarity.py` and `ranker.py`.
+
+**Timeout helpers** (BUG-06, 2026-07-25): Shared `utils/futures.py:map_with_per_item_timeout()` used by dedup enrichment, batch coverage, ranker, and multi-language search. Enforces per-item timeouts plus an optional shared deadline (`total_timeout_seconds`; enrichment caps it at `MAX_TIMEOUT_SECONDS` = 300s). Callers use `WaitTimeoutError` to distinguish wait timeouts from worker-raised `TimeoutError`.
 
 ## Tool Response Field Names
 
