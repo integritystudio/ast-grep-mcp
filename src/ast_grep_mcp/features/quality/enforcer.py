@@ -22,6 +22,7 @@ from ast_grep_mcp.core.executor import stream_ast_grep_results
 from ast_grep_mcp.core.logging import get_logger
 from ast_grep_mcp.features.quality.rules import RULE_TEMPLATES, load_rules_from_project
 from ast_grep_mcp.models.standards import EnforcementResult, LintingRule, RuleExecutionContext, RuleSet, RuleTemplate, RuleViolation
+from ast_grep_mcp.utils.file_discovery import find_source_files
 
 # =============================================================================
 # Built-in Rule Sets
@@ -634,12 +635,13 @@ def _build_enforcement_result(
     violations_by_severity: Dict[str, List[RuleViolation]],
     violations_by_rule: Dict[str, List[RuleViolation]],
     duration_ms: int,
+    files_scanned: int,
 ) -> EnforcementResult:
     summary = {
         "total_violations": len(filtered_violations),
         "by_severity": {sev: len(violations_by_severity[sev]) for sev in ("error", "warning", "info")},
         "by_file": {fp: len(vs) for fp, vs in violations_by_file.items()},
-        "files_scanned": len(violations_by_file),
+        "files_scanned": files_scanned,
         "rules_executed": len(rule_set_obj.rules),
         "execution_time_ms": duration_ms,
     }
@@ -651,7 +653,7 @@ def _build_enforcement_result(
         violations_by_rule=violations_by_rule,
         rules_executed=[r.id for r in rule_set_obj.rules],
         execution_time_ms=duration_ms,
-        files_scanned=len(violations_by_file),
+        files_scanned=files_scanned,
     )
 
 
@@ -667,13 +669,14 @@ def _run_enforcement(
     by_file = group_violations_by_file(filtered)
     by_severity = group_violations_by_severity(filtered)
     by_rule = group_violations_by_rule(filtered)
+    files_scanned = len(find_source_files(context.project_folder, context.language, context.exclude_patterns))
     execution_time = __import__("time").time() - start_time
     duration_ms = int(execution_time * ConversionFactors.MILLISECONDS_PER_SECOND)
-    result = _build_enforcement_result(filtered, rule_set_obj, by_file, by_severity, by_rule, duration_ms)
+    result = _build_enforcement_result(filtered, rule_set_obj, by_file, by_severity, by_rule, duration_ms, files_scanned)
     context.logger.info(
         "enforcement_completed",
         total_violations=len(filtered),
-        files_scanned=len(by_file),
+        files_scanned=files_scanned,
         execution_time_seconds=round(execution_time, FormattingDefaults.ROUNDING_PRECISION),
     )
     return result

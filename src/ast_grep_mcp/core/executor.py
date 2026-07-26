@@ -628,7 +628,8 @@ async def async_stream_ast_grep_results(
         )
 
         match_count = 0
-        assert process.stderr  # guaranteed by asyncio.subprocess.PIPE
+        if process.stderr is None:  # guaranteed non-None by asyncio.subprocess.PIPE
+            raise RuntimeError("subprocess stderr pipe unavailable")
         stderr_task = asyncio.create_task(process.stderr.read())
 
         async for match in _async_iter_stdout_matches(
