@@ -18,6 +18,7 @@ from ast_grep_mcp.models.documentation import (
     DocSyncResult,
     FunctionSignature,
 )
+from ast_grep_mcp.utils.file_discovery import find_source_files
 from ast_grep_mcp.utils.text import read_file_lines
 
 from .docstring_generator import FunctionSignatureParser
@@ -306,19 +307,15 @@ def _find_markdown_files(project_folder: str) -> List[str]:
     Returns:
         List of markdown file paths
     """
-    import glob
-
-    patterns = ["**/*.md", "**/*.markdown"]
-    files = []
-
-    for pattern in patterns:
-        full_pattern = os.path.join(project_folder, pattern)
-        matched = glob.glob(full_pattern, recursive=True)
-        files.extend(matched)
-
-    files = [f for f in files if not any(d in f for d in FilePatterns.SKIP_DIR_NAMES)]
-
-    return list(set(files))
+    return [
+        str(f)
+        for f in find_source_files(
+            project_folder,
+            "markdown",
+            extensions=[".md", ".markdown"],
+            skip_dir_names=FilePatterns.SKIP_DIR_NAMES,
+        )
+    ]
 
 
 def _check_function_docstring(

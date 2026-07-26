@@ -2,7 +2,6 @@
 
 import os
 import re
-import subprocess
 import tempfile
 import time
 from typing import Any, Callable, Dict, List, Optional, Pattern, Tuple
@@ -23,6 +22,7 @@ from ast_grep_mcp.features.rewrite.backup import (
     list_available_backups,
     restore_backup,
 )
+from ast_grep_mcp.utils.subprocess_runner import TOOL_NOT_FOUND, run_tool
 
 _TSC_ERROR_PATTERN: Pattern[str] = re.compile(SyntaxValidationDefaults.TSC_SYNTAX_ERROR_PATTERN)
 
@@ -52,18 +52,12 @@ def _parse_node_error(stderr: str) -> str:
 
 def _run_node_check(tmp_path: str) -> Dict[str, Any]:
     """Run node --check on a file and return validity result."""
-    try:
-        result = subprocess.run(
-            ["node", "--check", tmp_path],
-            capture_output=True,
-            text=True,
-            timeout=SyntaxValidationDefaults.NODE_TIMEOUT_SECONDS,
-        )
-        if result.returncode != 0:
-            return {"valid": False, "error": _parse_node_error(result.stderr)}
-        return {"valid": True, "error": None}
-    except Exception:
+    result = run_tool(["node", "--check", tmp_path], SyntaxValidationDefaults.NODE_TIMEOUT_SECONDS)
+    if result.error is not None:
         return {"valid": True, "error": "JavaScript validation failed"}
+    if result.returncode != 0:
+        return {"valid": False, "error": _parse_node_error(result.stderr)}
+    return {"valid": True, "error": None}
 
 
 def _validate_javascript_syntax(content: str) -> Dict[str, Any]:
@@ -109,34 +103,31 @@ def _validate_typescript_syntax(file_path: str) -> Dict[str, Any]:
     Returns:
         Dict with 'valid' and 'error' keys
     """
-    try:
-        result = subprocess.run(
-            [
-                "tsc",
-                "--noEmit",
-                "--noResolve",
-                "--skipLibCheck",
-                "--module",
-                "esnext",
-                "--target",
-                "esnext",
-                "--moduleResolution",
-                "bundler",
-                file_path,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=SyntaxValidationDefaults.TSC_TIMEOUT_SECONDS,
-        )
-        combined = result.stdout + result.stderr
-        error_line = _extract_tsc_syntax_error(combined)
-        if error_line:
-            return {"valid": False, "error": error_line}
-        return {"valid": True, "error": None}
-    except FileNotFoundError:
+    result = run_tool(
+        [
+            "tsc",
+            "--noEmit",
+            "--noResolve",
+            "--skipLibCheck",
+            "--module",
+            "esnext",
+            "--target",
+            "esnext",
+            "--moduleResolution",
+            "bundler",
+            file_path,
+        ],
+        SyntaxValidationDefaults.TSC_TIMEOUT_SECONDS,
+    )
+    if result.error == TOOL_NOT_FOUND:
         return {"valid": True, "error": "TypeScript validation skipped (tsc not available)"}
-    except subprocess.SubprocessError:
+    if result.error is not None:
         return {"valid": True, "error": "TypeScript validation skipped (tsc timed out)"}
+    combined = result.stdout + result.stderr
+    error_line = _extract_tsc_syntax_error(combined)
+    if error_line:
+        return {"valid": False, "error": error_line}
+    return {"valid": True, "error": None}
 
 
 def _validate_java_syntax(file_path: str) -> Dict[str, Any]:
@@ -148,20 +139,17 @@ def _validate_java_syntax(file_path: str) -> Dict[str, Any]:
     Returns:
         Dict with 'valid' and 'error' keys
     """
-    try:
-        javac_result = subprocess.run(
-            ["javac", "-Xlint:none", file_path], capture_output=True, text=True, timeout=SyntaxValidationDefaults.JAVAC_TIMEOUT_SECONDS
-        )
-        if javac_result.returncode != 0:
-            return {"valid": False, "error": javac_result.stderr[: SyntaxValidationDefaults.JAVAC_ERROR_PREVIEW_LENGTH]}
-
-        # Clean up .class file if compilation succeeded
-        class_file = file_path.replace(".java", ".class")
-        if os.path.exists(class_file):
-            os.remove(class_file)
-        return {"valid": True, "error": None}
-    except (subprocess.SubprocessError, FileNotFoundError):
+    javac_result = run_tool(["javac", "-Xlint:none", file_path], SyntaxValidationDefaults.JAVAC_TIMEOUT_SECONDS)
+    if javac_result.error is not None:
         return {"valid": True, "error": "Java validation skipped (javac not available)"}
+    if javac_result.returncode != 0:
+        return {"valid": False, "error": javac_result.stderr[: SyntaxValidationDefaults.JAVAC_ERROR_PREVIEW_LENGTH]}
+
+    # Clean up .class file if compilation succeeded
+    class_file = file_path.replace(".java", ".class")
+    if os.path.exists(class_file):
+        os.remove(class_file)
+    return {"valid": True, "error": None}
 
 
 def validate_syntax(file_path: str, language: str) -> Dict[str, Any]:

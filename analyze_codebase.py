@@ -11,7 +11,6 @@ This script analyzes the ast-grep-mcp codebase for:
 
 import argparse
 import re
-import subprocess
 import sys
 import traceback
 from collections.abc import Iterator
@@ -22,7 +21,6 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from ast_grep_mcp.constants import (
-    LANGUAGE_EXTENSIONS,
     DeduplicationDefaults,
     FilePatterns,
     FormattingDefaults,
@@ -37,7 +35,9 @@ from ast_grep_mcp.features.quality.security_scanner import detect_security_issue
 from ast_grep_mcp.features.quality.tools import apply_standards_fixes_tool, enforce_standards_tool, generate_quality_report_tool
 from ast_grep_mcp.models.complexity import ComplexityThresholds, FunctionComplexity
 from ast_grep_mcp.utils.console_logger import console
+from ast_grep_mcp.utils.file_discovery import find_source_files, language_extensions
 from ast_grep_mcp.utils.slicing import take_top_n
+from ast_grep_mcp.utils.subprocess_runner import TOOL_NOT_FOUND, run_tool
 from scripts.analysis_output_helpers import log_count_breakdown, print_section_header
 
 DEFAULT_PROJECT_FOLDER = "src/ast_grep_mcp"
@@ -56,14 +56,10 @@ def print_section(title: str) -> None:
     print_section_header(out, title, width=FormattingDefaults.WIDE_SECTION_WIDTH)
 
 
-def _language_extensions(language: str) -> list[str]:
-    """Dotted source extensions for a language, falling back to the language name."""
-    return LANGUAGE_EXTENSIONS.get(language, [f".{language}"])
-
 
 def _language_include_patterns(language: str) -> list[str]:
     """Build MCP tool include_patterns for a language's source extensions."""
-    return [f"**/*{ext}" for ext in _language_extensions(language)]
+    return [f"**/*{ext}" for ext in language_extensions(language)]
 
 
 def _report_phase_exception(phase: str, exc: Exception) -> None:
@@ -72,20 +68,12 @@ def _report_phase_exception(phase: str, exc: Exception) -> None:
     traceback.print_exc()
 
 
-def _discover_source_files(project_folder: str, language: str) -> list[Path]:
-    """Discover source files in the project folder by language."""
-    folder = Path(project_folder)
-    if not folder.is_dir():
-        return []
-    files = {f for ext in _language_extensions(language) for f in folder.rglob(f"*{ext}")}
-    return [f for f in sorted(files) if not any(f.match(p) for p in EXCLUDE_PATTERNS)]
-
 
 def analyze_individual_files(project_folder: str, language: str) -> None:
     """Analyze the top most complex files individually."""
     print_section("PHASE 1: Individual File Complexity Analysis")
 
-    source_files = _discover_source_files(project_folder, language)
+    source_files = find_source_files(project_folder, language, EXCLUDE_PATTERNS)
     if not source_files:
         out(f"\nNo {language} source files found in {project_folder}")
         return
@@ -343,33 +331,30 @@ def _run_tsc_check(project_folder: str) -> bool:
         return True
 
     out("\nRunning tsc --noEmit to verify fixes...")
-    try:
-        result = subprocess.run(
-            ["npx", "tsc", "--noEmit"],
-            cwd=project_folder,
-            capture_output=True,
-            text=True,
-            timeout=SubprocessDefaults.TSC_NOEMIT_TIMEOUT_SECONDS,
-        )
-        if result.returncode == 0:
-            out("tsc --noEmit: PASSED (no type errors)")
-            return True
-
-        error_lines = result.stdout.strip().splitlines() if result.stdout else []
-        error_count = sum(1 for line in error_lines if ": error TS" in line)
-        out(f"tsc --noEmit: FAILED ({error_count} type errors)")
-        for line in error_lines[: SemanticVolumeDefaults.DETAIL_RESULTS_LIMIT]:
-            if ": error TS" in line:
-                out(f"  {line}")
-        if error_count > SemanticVolumeDefaults.DETAIL_RESULTS_LIMIT:
-            out(f"  ... and {error_count - SemanticVolumeDefaults.DETAIL_RESULTS_LIMIT} more errors")
-        return False
-    except FileNotFoundError:
+    result = run_tool(
+        ["npx", "tsc", "--noEmit"],
+        SubprocessDefaults.TSC_NOEMIT_TIMEOUT_SECONDS,
+        cwd=project_folder,
+    )
+    if result.error == TOOL_NOT_FOUND:
         out("tsc not found, skipping type check")
         return True
-    except subprocess.TimeoutExpired:
+    if result.error is not None:
         out(f"tsc --noEmit timed out after {SubprocessDefaults.TSC_NOEMIT_TIMEOUT_SECONDS}s, skipping")
         return True
+    if result.returncode == 0:
+        out("tsc --noEmit: PASSED (no type errors)")
+        return True
+
+    error_lines = result.stdout.strip().splitlines() if result.stdout else []
+    error_count = sum(1 for line in error_lines if ": error TS" in line)
+    out(f"tsc --noEmit: FAILED ({error_count} type errors)")
+    for line in error_lines[: SemanticVolumeDefaults.DETAIL_RESULTS_LIMIT]:
+        if ": error TS" in line:
+            out(f"  {line}")
+    if error_count > SemanticVolumeDefaults.DETAIL_RESULTS_LIMIT:
+        out(f"  ... and {error_count - SemanticVolumeDefaults.DETAIL_RESULTS_LIMIT} more errors")
+    return False
 
 
 _CLI_ENTRY_POINT_RE = re.compile(r'\bif\s+__name__\s*==\s*["\']__main__["\']')

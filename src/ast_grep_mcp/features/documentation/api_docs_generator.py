@@ -12,13 +12,14 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 import sentry_sdk
 
-from ast_grep_mcp.constants import LANGUAGE_EXTENSIONS, ConversionFactors, FilePatterns, RegexCaptureGroups
+from ast_grep_mcp.constants import ConversionFactors, FilePatterns, RegexCaptureGroups
 from ast_grep_mcp.core.logging import get_logger
 from ast_grep_mcp.models.documentation import (
     ApiDocsResult,
     ApiRoute,
     RouteParameter,
 )
+from ast_grep_mcp.utils.file_discovery import find_source_files, language_extensions
 
 logger = get_logger(__name__)
 
@@ -524,16 +525,11 @@ def _find_route_files(project_folder: str, language: str, framework: str) -> Lis
         List of file paths
     """
     patterns = _ROUTE_PATTERNS.get(framework, ["routes", "api", "controllers"])
-    exts = LANGUAGE_EXTENSIONS.get(language, [".py", ".js", ".ts"])
-    route_files = []
-    for root, _dirs, files in os.walk(project_folder):
-        if any(skip in root for skip in FilePatterns.SKIP_DIR_NAMES):
-            continue
-        for file in files:
-            full_path = os.path.join(root, file)
-            if _is_route_file(full_path, file, project_folder, patterns, exts):
-                route_files.append(full_path)
-    return route_files
+    exts = language_extensions(language, fallback=[".py", ".js", ".ts"])
+    candidates = find_source_files(
+        project_folder, language, extensions=exts, skip_dir_names=FilePatterns.SKIP_DIR_NAMES
+    )
+    return [str(f) for f in candidates if _is_route_file(str(f), f.name, project_folder, patterns, exts)]
 
 
 _PARSERS: Dict[str, RouteParser] = {

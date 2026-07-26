@@ -8,12 +8,12 @@ import difflib
 import os
 import re
 import shutil
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from ast_grep_mcp.constants import DisplayDefaults, FormattingDefaults, SubprocessDefaults, UnifiedDiffRegexGroups
+from ast_grep_mcp.utils.subprocess_runner import run_tool
 
 
 @dataclass
@@ -684,7 +684,7 @@ def _run_prettier(code: str, suffix: str, parser: str, line_length: int) -> Opti
             f.write(code)
             temp_path = f.name
         try:
-            result = subprocess.run(
+            result = run_tool(
                 [
                     prettier_path,
                     "--parser",
@@ -698,15 +698,13 @@ def _run_prettier(code: str, suffix: str, parser: str, line_length: int) -> Opti
                     "always",
                     temp_path,
                 ],
-                capture_output=True,
-                text=True,
-                timeout=SubprocessDefaults.GREP_TIMEOUT_SECONDS,
+                SubprocessDefaults.GREP_TIMEOUT_SECONDS,
             )
-            return result.stdout if result.returncode == 0 else None
+            return result.stdout if result.ok else None
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
-    except (subprocess.TimeoutExpired, Exception):
+    except Exception:
         return None
 
 
@@ -793,18 +791,16 @@ def _run_google_java_format(code: str) -> Optional[str]:
             f.write(code)
             temp_path = f.name
         try:
-            subprocess.run(
+            run_tool(
                 [formatter_path, "--replace", temp_path],
-                capture_output=True,
-                text=True,
-                timeout=SubprocessDefaults.GREP_TIMEOUT_SECONDS,
+                SubprocessDefaults.GREP_TIMEOUT_SECONDS,
             )
             with open(temp_path) as f:
                 return f.read()
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
-    except (subprocess.TimeoutExpired, Exception):
+    except Exception:
         return None
 
 
