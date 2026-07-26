@@ -45,6 +45,8 @@ TOOL_CATEGORIES: dict[str, str] = {
     "rewrite_code": "rewrite",
     "rollback_rewrite": "rewrite",
     "list_backups": "rewrite",
+    "get_zod_rewrite_rule": "rewrite",
+    "list_zod_rewrite_rules": "rewrite",
     # refactoring
     "extract_function": "refactoring",
     "rename_symbol": "refactoring",
@@ -53,6 +55,8 @@ TOOL_CATEGORIES: dict[str, str] = {
     "analyze_deduplication_candidates": "deduplication",
     "apply_deduplication": "deduplication",
     "benchmark_deduplication": "deduplication",
+    "calculate_ast_similarity": "deduplication",
+    "calculate_semantic_similarity": "deduplication",
     # complexity
     "analyze_complexity": "complexity",
     "detect_code_smells": "complexity",

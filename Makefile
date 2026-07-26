@@ -1,4 +1,4 @@
-.PHONY: help install lint type-check format test test-unit test-integration test-quality test-performance test-all test-cov run serve clean
+.PHONY: help install lint type-check format test test-unit test-integration test-quality test-performance test-all test-cov run serve list-tools clean
 
 help:
 	@echo "ast-grep-mcp — Development commands"
@@ -24,6 +24,7 @@ help:
 	@echo "Running:"
 	@echo "  make run            Run MCP server locally"
 	@echo "  make serve          Run MCP server with Doppler secrets"
+	@echo "  make list-tools     List all MCP tools grouped by category"
 
 install:
 	uv sync
@@ -63,6 +64,9 @@ run:
 
 serve:
 	doppler run -- uv run main.py
+
+list-tools:
+	uv run python scripts/list_tools.py
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
