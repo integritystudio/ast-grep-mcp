@@ -658,48 +658,69 @@ class DeduplicationApplicator:
         return "\n".join(lines)
 
     @staticmethod
-    def _insert_python_import(lines: List[str], import_statement: str) -> None:
-        """Insert import into Python source lines."""
+    def _find_last_module_import(lines: List[str]) -> int:
+        """Index of the last module-level import, or -1 if there is none.
+
+        Only column-0 imports count: an indented function-local import must not
+        become an insertion anchor (BUG-10). Scanning stops at the first line of
+        real code after an import, so imports further down the file (inside a
+        function, or after a conditional) are not picked up.
+        """
         last_import_idx = -1
         for i, line in enumerate(lines):
-            # Only match module-level (column-0) imports; indented function-local
-            # imports must not be used as an insertion anchor (BUG-10).
-            stripped = line.strip()
             if line.startswith("import ") or line.startswith("from "):
                 last_import_idx = i
-            elif stripped and not stripped.startswith("#") and last_import_idx >= 0:
+                continue
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and last_import_idx >= 0:
                 break
+        return last_import_idx
 
+    @staticmethod
+    def _skip_leading_comments(lines: List[str]) -> int:
+        """Index of the first line that is neither blank nor a comment."""
+        for i, line in enumerate(lines):
+            if line.strip() and not line.startswith("#"):
+                return i
+        return len(lines)
+
+    @staticmethod
+    def _skip_module_docstring(lines: List[str], start: int) -> int:
+        """Index just past the module docstring starting at ``start``.
+
+        Returns ``start`` unchanged when no docstring begins there. An unclosed
+        multi-line docstring consumes the rest of the file, matching the
+        behaviour of inserting after it rather than inside it.
+        """
+        if start >= len(lines):
+            return start
+
+        stripped = lines[start].strip()
+        quote = stripped[:3]
+        if quote not in ('"""', "'''"):
+            return start
+
+        # Closing quotes on the same line: a single-line docstring.
+        if quote in stripped[3:]:
+            return start + 1
+
+        for i in range(start + 1, len(lines)):
+            if quote in lines[i]:
+                return i + 1
+        return len(lines)
+
+    @classmethod
+    def _insert_python_import(cls, lines: List[str], import_statement: str) -> None:
+        """Insert import into Python source lines."""
+        last_import_idx = cls._find_last_module_import(lines)
         if last_import_idx >= 0:
             lines.insert(last_import_idx + 1, import_statement)
             return
 
-        # No imports found — add after shebang/encoding comments and any module
-        # docstring so the docstring is not demoted to a plain string expression
-        # (BUG-10).
-        insert_idx = 0
-        for i, line in enumerate(lines):
-            if not line.strip() or line.startswith("#"):
-                insert_idx = i + 1
-            else:
-                break
-
-        # Skip past a module docstring if present at the insertion point.
-        if insert_idx < len(lines):
-            s = lines[insert_idx].strip()
-            if s.startswith('"""') or s.startswith("'''"):
-                q = s[:3]
-                if q in s[3:]:
-                    # Single-line docstring: """...""" all on one line.
-                    insert_idx += 1
-                else:
-                    # Multi-line docstring: scan forward to the closing quotes.
-                    insert_idx += 1
-                    while insert_idx < len(lines):
-                        if q in lines[insert_idx]:
-                            insert_idx += 1
-                            break
-                        insert_idx += 1
+        # No imports found — insert after shebang/encoding comments and any
+        # module docstring, so the docstring is not demoted to a plain string
+        # expression (BUG-10).
+        insert_idx = cls._skip_module_docstring(lines, cls._skip_leading_comments(lines))
 
         lines.insert(insert_idx, import_statement)
         if insert_idx > 0:

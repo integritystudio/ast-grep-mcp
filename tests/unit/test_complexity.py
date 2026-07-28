@@ -21,6 +21,7 @@ from ast_grep_mcp.features.complexity.analyzer import (
 from ast_grep_mcp.features.complexity.metrics import (
     calculate_nesting_depth,
     get_complexity_patterns,
+    strip_non_code,
 )
 from ast_grep_mcp.features.complexity.storage import ComplexityStorage
 from ast_grep_mcp.models.complexity import ComplexityMetrics, ComplexityThresholds, FunctionComplexity
@@ -778,3 +779,68 @@ def func_{idx}(x, y):
             # Should complete in reasonable time (<30s)
             assert elapsed < 30.0, f"File analysis for {total_functions} functions took {elapsed:.2f}s (>30s)"
             console.log(f"\nFile analysis benchmark: {elapsed:.2f}s for {total_functions} functions in 100 files")
+
+
+class TestStripNonCode:
+    """Comments and string literals must not be counted as control flow.
+
+    Keyword counting ran over raw source, so prose inflated every metric: a
+    docstring using the words "for", "if", "and" or "or" read as decision
+    points. utils/futures.py:map_with_per_item_timeout measured cyclomatic 24
+    against a body of 9 — 14 of the 23 counted points came from its docstring —
+    and tripped the critical-threshold quality gate on that basis alone.
+    """
+
+    def test_docstring_keywords_are_not_counted(self):
+        documented = '''def f(x):
+    """Wait for each item and log it, or skip if the deadline passed.
+
+    Iterate for as long as needed with either strategy.
+    """
+    return x
+'''
+        undocumented = "def f(x):\n    return x\n"
+
+        assert calculate_cyclomatic_complexity(documented, "python") == calculate_cyclomatic_complexity(undocumented, "python")
+
+    def test_comment_keywords_are_not_counted(self):
+        commented = "def f(x):\n    # loop for a while and check if valid or not\n    return x\n"
+
+        assert calculate_cyclomatic_complexity(commented, "python") == 1
+
+    def test_real_branches_are_still_counted(self):
+        code = "def f(x):\n    if x and x > 1:\n        for i in x:\n            pass\n    return x\n"
+
+        # base 1 + if + and + for
+        assert calculate_cyclomatic_complexity(code, "python") == 4
+
+    def test_string_literal_keywords_are_not_counted(self):
+        code = 'def f():\n    msg = "if this and that or the other"\n    return msg\n'
+
+        assert calculate_cyclomatic_complexity(code, "python") == 1
+
+    def test_line_numbers_are_preserved(self):
+        """Cognitive and nesting are line-oriented, so spans must keep newlines."""
+        code = 'x = 1\n"""\na\nb\n"""\ny = 2\n'
+
+        assert len(strip_non_code(code).split("\n")) == len(code.split("\n"))
+
+    def test_docstring_does_not_inflate_nesting(self):
+        code = 'def f():\n    """\n            deeply indented prose\n    """\n    return 1\n'
+
+        assert calculate_nesting_depth(code, "python") <= 1
+
+    def test_docstring_does_not_inflate_cognitive(self):
+        documented = 'def f(x):\n    """Do it for each one and then, if needed, or else stop."""\n    return x\n'
+
+        assert calculate_cognitive_complexity(documented, "python") == 0
+
+    def test_hash_inside_string_is_not_treated_as_comment(self):
+        code = 'def f():\n    return "#" + "value"\n'
+
+        assert strip_non_code(code).count("\n") == code.count("\n")
+
+    def test_js_block_and_line_comments_are_stripped(self):
+        code = "function f(x) {\n  /* if (a && b) for */\n  // while (c || d)\n  return x;\n}\n"
+
+        assert calculate_cyclomatic_complexity(code, "typescript") == 1

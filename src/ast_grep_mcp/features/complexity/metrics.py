@@ -182,6 +182,52 @@ def _get_cyclomatic_config(language: str) -> Dict[str, List[str]]:
     return CYCLOMATIC_CONFIG["python"]
 
 
+# Comments and string literals are prose, not control flow.  Counting keywords
+# inside them inflated every metric here — a long docstring using the words
+# "for", "if", "and" or "or" read as decision points, which measured
+# utils/futures.py:map_with_per_item_timeout at cyclomatic 24 when its body has
+# 9 (14 of the 23 counted points came from the docstring alone).  Blanking
+# happens before any counting, and preserves line count and indentation so the
+# line-oriented cognitive and nesting passes still see the real code layout.
+_TRIPLE_QUOTED = re.compile(r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'')
+_BLOCK_COMMENT = re.compile(r"/\*[\s\S]*?\*/")
+_SINGLE_QUOTED = re.compile(r'"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'')
+_LINE_COMMENT = re.compile(r"(#|//).*$", re.MULTILINE)
+
+
+def _blank_preserving_newlines(match: "re.Match[str]") -> str:
+    """Replace a matched span with its newlines, dropping all other characters."""
+    return "\n" * match.group(0).count("\n")
+
+
+def strip_non_code(code: str) -> str:
+    """Blank out comments and string literals so only real code is counted.
+
+    Multi-line spans collapse to their newlines and single-line spans to empty
+    quotes, keeping every remaining code line at its original index and
+    indentation.
+
+    This is deliberately lexical rather than AST-based: the surrounding metrics
+    are keyword heuristics applied to arbitrary extracted snippets, which are
+    frequently not parseable on their own (a dedented method body, a fragment
+    cut at a line boundary). Pathological cases — a quote inside a comment, a
+    triple quote inside a single-quoted string — can still mis-span, so treat
+    the output as a better estimate, not a guarantee.
+
+    Args:
+        code: Source code, possibly a fragment.
+
+    Returns:
+        The code with comment and string-literal content removed.
+    """
+    without_blocks = _TRIPLE_QUOTED.sub(_blank_preserving_newlines, code)
+    without_blocks = _BLOCK_COMMENT.sub(_blank_preserving_newlines, without_blocks)
+    # Strings before line comments: a '#' or '//' inside a string literal is
+    # not a comment, and the literal is already gone by this point.
+    without_strings = _SINGLE_QUOTED.sub('""', without_blocks)
+    return _LINE_COMMENT.sub("", without_strings)
+
+
 def _count_occurrences(code: str, items: List[str]) -> int:
     """Count occurrences of items in code.
 
@@ -216,7 +262,9 @@ def calculate_cyclomatic_complexity(code: str, language: str) -> int:
     # Get language-specific configuration
     config = _get_cyclomatic_config(language)
 
-    # Count decision keywords and logical operators
+    # Count decision keywords and logical operators in code only — keywords in
+    # comments and string literals are prose, not branches.
+    code = strip_non_code(code)
     complexity += _count_occurrences(code, config["keywords"])
     complexity += _count_occurrences(code, config["operators"])
 
@@ -472,6 +520,11 @@ def calculate_cognitive_complexity(code: str, language: str) -> int:
     # Get language-specific control flow keywords
     control_flow = _get_control_flow_keywords(language, patterns)
 
+    # Docstring prose reads as control flow to the per-line keyword and logical
+    # operator passes below; blank it out first (line positions are preserved,
+    # so nesting penalties are unaffected).
+    code = strip_non_code(code)
+
     # Process each line
     for line in code.split("\n"):
         line_complexity, base_indent = _process_code_line(line, control_flow, language, base_indent)
@@ -490,7 +543,8 @@ def calculate_nesting_depth(code: str, language: str) -> int:
     Returns:
         Maximum nesting depth
     """
-    lines = code.split("\n")
+    # Indented docstring prose would otherwise register as nesting.
+    lines = strip_non_code(code).split("\n")
     max_depth = 0
     base_indent = None
 
