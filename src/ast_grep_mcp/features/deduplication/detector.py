@@ -363,7 +363,15 @@ class DuplicationDetector:
         return "\n".join(lines)
 
     def group_duplicates(self, matches: List[Dict[str, Any]], min_similarity: float, min_lines: int) -> List[List[Dict[str, Any]]]:
-        """Group similar code constructs together."""
+        """Group similar code constructs together.
+
+        Uses MinHash LSH candidate retrieval instead of structure-hash bucketing.
+        The old structure hash assigned each construct to a single bucket; on
+        real codebases it was so discriminative that >99% of constructs fell in
+        singleton buckets and were never compared (TSD-01).  LSH bands are
+        similarity-preserving: near-duplicates land in the same band with high
+        probability regardless of surface variation from typed annotations etc.
+        """
         if not matches:
             return []
 
@@ -372,42 +380,25 @@ class DuplicationDetector:
         if not filtered_matches:
             return []
 
-        # Use hash-based bucketing for initial grouping (optimization)
-        buckets = self._create_hash_buckets(filtered_matches)
+        # Build keyed code items for MinHash LSH candidate retrieval.
+        code_items = [(str(i), m.get("text", "")) for i, m in enumerate(filtered_matches)]
 
-        # Find similar items within each bucket
-        groups = []
-        for bucket in buckets.values():
-            bucket_groups = self._find_similar_in_bucket(bucket, min_similarity)
-            groups.extend(bucket_groups)
+        # find_similar_pairs uses LSH + MinHash verification to return all pairs
+        # whose estimated similarity meets min_similarity.  It falls back to
+        # all-pairs for small corpora, preserving existing behaviour there.
+        similar_pairs = self._minhash.find_all_similar_pairs(code_items, min_similarity)
 
-        # Merge groups that share members
-        merged_groups = self._merge_overlapping_groups(groups)
+        if not similar_pairs:
+            return []
 
-        # Filter out single-item groups
+        # Convert pairs → initial 2-item groups, then cluster overlapping groups.
+        pair_groups: List[List[Dict[str, Any]]] = [
+            [filtered_matches[int(k1)], filtered_matches[int(k2)]]
+            for k1, k2, _ in similar_pairs
+        ]
+        merged_groups = self._merge_overlapping_groups(pair_groups)
+
         return [group for group in merged_groups if len(group) > 1]
-
-    def _create_hash_buckets(self, matches: List[Dict[str, Any]]) -> Dict[int, List[Dict[str, Any]]]:
-        """Create hash buckets for initial grouping (reduces O(n²) comparisons)."""
-        buckets: Dict[int, List[Dict[str, Any]]] = {}
-        for match in matches:
-            hash_val = self._calculate_structure_hash(match.get("text", ""))
-            buckets.setdefault(hash_val, []).append(match)
-        return buckets
-
-    def _calculate_structure_hash(self, code: str) -> int:
-        """Calculate a hash based on code structure for bucketing.
-
-        Uses enhanced token pattern fingerprinting for better bucket distribution.
-        Groups code by control flow, definitions, returns, and indentation depth.
-
-        Args:
-            code: Source code to hash.
-
-        Returns:
-            Structure hash integer for bucket assignment.
-        """
-        return self._structure_hash.calculate(code)
 
     def _collect_similar_items(
         self, anchor: Dict[str, Any], candidates: List[Dict[str, Any]], candidate_indices: List[int], used: set[int], min_similarity: float
@@ -444,6 +435,26 @@ class DuplicationDetector:
             groups.append(group)
 
         return groups
+
+    def _create_hash_buckets(self, matches: List[Dict[str, Any]]) -> Dict[int, List[Dict[str, Any]]]:
+        """Create hash buckets by structure hash (no longer used by group_duplicates).
+
+        Retained as a utility method; callers wanting LSH-based candidate
+        retrieval should use MinHashSimilarity.find_all_similar_pairs instead.
+        """
+        buckets: Dict[int, List[Dict[str, Any]]] = {}
+        for match in matches:
+            hash_val = self._calculate_structure_hash(match.get("text", ""))
+            buckets.setdefault(hash_val, []).append(match)
+        return buckets
+
+    def _calculate_structure_hash(self, code: str) -> int:
+        """Calculate a structure hash for bucketing (no longer used by group_duplicates).
+
+        Retained as a utility method; the hash is too discriminative for use
+        as the sole bucketing mechanism on typed TypeScript (TSD-01).
+        """
+        return self._structure_hash.calculate(code)
 
     # ── Precision filters ─────────────────────────────────────────────
     # These filters reduce false positives identified in the 2026-03-08
