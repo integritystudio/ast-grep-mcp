@@ -777,6 +777,21 @@ class TestCalculateStatistics:
         assert stats["total_duplicated_lines"] == 20
         assert stats["potential_line_savings"] == 10
 
+    def test_no_truncation_fields_when_not_capped(self):
+        """constructs_truncated and total_found absent when total_found <= analyzed."""
+        detector = DuplicationDetector()
+        stats = detector._calculate_statistics([{}, {}], [], [], total_found=2)
+        assert "constructs_truncated" not in stats
+        assert "total_found" not in stats
+
+    def test_truncation_fields_present_when_capped(self):
+        """constructs_truncated=True and total_found exposed when cap was hit."""
+        detector = DuplicationDetector()
+        stats = detector._calculate_statistics([{}, {}], [], [], total_found=50)
+        assert stats.get("constructs_truncated") is True
+        assert stats["total_found"] == 50
+        assert stats["total_constructs"] == 2
+
 
 class TestEmptyResult:
     """Tests for _empty_result method."""
@@ -1003,7 +1018,7 @@ class TestEdgeCases:
             mock_stream.return_value = iter(matches)
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                result = detector._find_constructs(tmpdir, "def $NAME($$$)", 5, [])
+                result, total_found = detector._find_constructs(tmpdir, "def $NAME($$$)", 5, [])
 
             # Should have all 5 matches
             assert len(result) == 5
@@ -1288,10 +1303,11 @@ class TestFindConstructsBUG07:
             mock_stream.return_value = iter(all_raw)
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                result = detector._find_constructs(tmpdir, "def $NAME($$$)", max_constructs=5, exclude_patterns=[".venv"])
+                result, total_found = detector._find_constructs(tmpdir, "def $NAME($$$)", max_constructs=5, exclude_patterns=[".venv"])
 
         assert len(result) == 3, "real matches must survive after excluded ones are filtered out"
         assert all("/project/src/" in m["file"] for m in result)
+        assert total_found == 3
 
     def test_limit_applied_after_filtering(self) -> None:
         """max_constructs truncates kept matches, not raw matches."""
@@ -1306,9 +1322,10 @@ class TestFindConstructsBUG07:
             mock_stream.return_value = iter(real)
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                result = detector._find_constructs(tmpdir, "def $NAME($$$)", max_constructs=4, exclude_patterns=[])
+                result, total_found = detector._find_constructs(tmpdir, "def $NAME($$$)", max_constructs=4, exclude_patterns=[])
 
         assert len(result) == 4
+        assert total_found == 10
 
     def test_zero_max_constructs_returns_all(self) -> None:
         """max_constructs=0 returns all kept matches without truncation."""
@@ -1323,9 +1340,10 @@ class TestFindConstructsBUG07:
             mock_stream.return_value = iter(real)
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                result = detector._find_constructs(tmpdir, "def $NAME($$$)", max_constructs=0, exclude_patterns=[])
+                result, total_found = detector._find_constructs(tmpdir, "def $NAME($$$)", max_constructs=0, exclude_patterns=[])
 
         assert len(result) == 8
+        assert total_found == 8
 
     def test_stream_called_with_unlimited_max_results(self) -> None:
         """_find_constructs must pass max_results=0 to the stream (no pre-filter)."""
