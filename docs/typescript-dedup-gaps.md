@@ -125,10 +125,81 @@ constructing a Python detector and using it for scoring.
    that cannot ever parse; a test that runs each `(language, construct_type)`
    pair against a trivial fixture would have caught TSD-02 and TSD-04 both.
 
-## Not established
+## Follow-ups (verified post-merge)
 
-The investigation was stopped before a brute-force pairwise comparison of the
-312 real functions completed, so **the actual duplication level in
-`~/.claude/hooks` is still unknown.** Nothing here should be read as "the hooks
-codebase has no duplication" — only that the current tooling cannot tell us
-either way.
+TSD-01 through TSD-04 are fixed on `main`. Construct discovery now returns 315
+real functions instead of 1000 truncated one-line consts. Two residual defects
+remain, found by brute-forcing all 29,403 pairs to establish ground truth.
+
+### Ground truth for `~/.claude/hooks`
+
+The corpus genuinely has very little duplication — **exactly 2 pairs score
+≥0.80**, both in `lib/trace-context.ts`:
+
+| pair | hybrid | minhash |
+| --- | --- | --- |
+| `saveSessionContext` ↔ `savePromptContext` (9 lines each) | 0.8715 | 0.7734 |
+| `loadSessionContext` ↔ `loadPromptContext` (11 lines each) | 0.8808 | 0.8125 |
+
+Both were real duplication. The save pair differed only in the type name and the
+path helper — and `PromptTraceContext` was a `@deprecated` alias
+(`type PromptTraceContext = TraceContext`), i.e. the *same type*, so the two
+functions differed by exactly one token: `getSessionTracePath` vs
+`getContextPath`. The load pair added a differing TTL constant.
+
+Both have since been refactored away by hand in `~/.claude`
+(commit `2950f7a2`, "consolidate duplicated helpers, constants, and metric
+instruments"), which routed all four through `writeJson`/`loadJson` helpers in
+`./file-utils.js` — the same fix the tool should have recommended. The finding
+was correct; the tool simply did not report it.
+
+### TSD-07 (P1) — MinHash-only verification drops true duplicates
+
+`find_all_similar_pairs` (`similarity.py:322`) uses two different metrics for
+two stages:
+
+1. **Candidate generation is correct.** `lsh_recall_margin` widens the LSH
+   threshold 0.80 → 0.60, and the save pair *is* in the candidate set (verified
+   directly against `_find_lsh_candidates`).
+2. **Verification discards it.** `_verify_candidates` (`similarity.py:426`)
+   makes the final keep/drop call with `estimate_similarity()` — the raw MinHash
+   estimate — against the full `min_similarity`.
+
+So the margin is self-defeating: it widens the net, then re-applies the strict
+threshold using the very metric whose imprecision the margin exists to absorb.
+MinHash under-estimates relative to the hybrid scorer (0.7734 vs 0.8715), and
+the pair is lost. Patching verification to use the hybrid scorer recovers both
+pairs.
+
+**Regression scope.** Before TSD-01, grouping decided via
+`_collect_similar_items` → `calculate_similarity` (`detector.py:462`) — the
+hybrid AST/CodeBERT scorer. `group_duplicates` now delegates wholly to
+`find_all_similar_pairs`, which is MinHash-only, so `similarity_mode="hybrid"`
+is bypassed for grouping and the 3-stage pipeline is dead code on that path.
+TSD-01 traded a catastrophic recall bug for a subtler one.
+
+### TSD-08 (P3) — Partial recall suppresses the brute-force fallback
+
+`_should_use_fallback` returns `False` as soon as `len(candidates) > 0`, so the
+all-pairs fallback fires only on a *completely* empty candidate set. A partially
+populated set never self-corrects, even on corpora far below
+`max_fallback_items` (100) where brute force costs ~5s. Not the cause of the
+TSD-07 miss, but it removes the safety net that would otherwise mask LSH recall
+gaps on small inputs.
+
+### Not a defect
+
+Even with TSD-07 fixed, this corpus reports 0 groups: `_meets_min_savings`
+drops the surviving pair because 11 duplicated lines is under
+`DetectorDefaults.MIN_LINE_SAVINGS = 20`. That threshold is deliberate. A recall
+fixture for TSD-07 therefore needs **≥20 duplicated lines**, or it cannot
+distinguish "found nothing" from "found it and the savings filter ate it."
+
+### Method note
+
+An earlier revision of this investigation reported the pipeline finding 1 of the
+2 pairs partly for the wrong reason: the scratch harness omitted `range` from
+its match dicts, so `_get_item_key` returned `":0"` for every function in the
+file and `_merge_overlapping_groups` collapsed them. Re-run with complete match
+dicts, the shipped code finds 1 group for the reason given in TSD-07. Any
+harness that constructs match dicts by hand must include `file` **and** `range`.
