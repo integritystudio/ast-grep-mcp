@@ -103,7 +103,7 @@ class DuplicationDetector:
         """Inner detection logic, separated from tracking/error handling."""
         self._validate_parameters(min_similarity, min_lines, max_constructs)
         pattern = self._get_construct_pattern(construct_type)
-        all_matches = self._find_constructs(project_folder, pattern, max_constructs, exclude_patterns)
+        all_matches, total_found = self._find_constructs(project_folder, pattern, max_constructs, exclude_patterns)
 
         if not all_matches:
             return self._empty_result(construct_type, time.time() - start_time)
@@ -111,7 +111,7 @@ class DuplicationDetector:
         raw_groups = self.group_duplicates(all_matches, min_similarity, min_lines)
         duplication_groups = self._apply_precision_filters(raw_groups)
         suggestions = self.generate_refactoring_suggestions(duplication_groups, construct_type)
-        stats = self._calculate_statistics(all_matches, duplication_groups, suggestions)
+        stats = self._calculate_statistics(all_matches, duplication_groups, suggestions, total_found)
         return self._format_result(all_matches, duplication_groups, suggestions, stats, time.time() - start_time)
 
     def find_duplication(
@@ -257,8 +257,15 @@ class DuplicationDetector:
             self.logger.info("excluded_matches", total_before=before, total_after=len(filtered), excluded_count=before - len(filtered))
         return filtered
 
-    def _find_constructs(self, project_folder: str, pattern: str, max_constructs: int, exclude_patterns: List[str]) -> List[Dict[str, Any]]:
+    def _find_constructs(
+        self, project_folder: str, pattern: str, max_constructs: int, exclude_patterns: List[str]
+    ) -> tuple[List[Dict[str, Any]], int]:
         """Find all constructs matching the pattern.
+
+        Returns (matches, total_found) where total_found is the count before
+        any max_constructs cap is applied.  Callers use total_found to
+        distinguish "found N, analyzed N" from "found M, analyzed N < M"
+        (cross-cutting #2 from the TypeScript dedup gaps investigation).
 
         The stream limit is intentionally not applied before exclude filtering:
         excluded paths (e.g. .venv, node_modules) would otherwise consume the
@@ -279,12 +286,13 @@ class DuplicationDetector:
         )
 
         all_matches = self._apply_exclude_patterns(raw_matches, exclude_patterns)
+        total_found = len(all_matches)
 
         if max_constructs > 0 and len(all_matches) > max_constructs:
-            self.logger.info("construct_limit_reached", total_found=len(all_matches), max_constructs=max_constructs)
+            self.logger.info("construct_limit_reached", total_found=total_found, max_constructs=max_constructs)
             all_matches = all_matches[:max_constructs]
 
-        return all_matches
+        return all_matches, total_found
 
     def calculate_similarity(self, code1: str, code2: str) -> float:
         """Calculate similarity between two code snippets.
@@ -675,18 +683,39 @@ class DuplicationDetector:
         return self._FUNCTION_STRATEGY_LARGE
 
     def _calculate_statistics(
-        self, all_matches: List[Dict[str, Any]], duplication_groups: List[List[Dict[str, Any]]], suggestions: List[Dict[str, Any]]
+        self,
+        all_matches: List[Dict[str, Any]],
+        duplication_groups: List[List[Dict[str, Any]]],
+        suggestions: List[Dict[str, Any]],
+        total_found: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Calculate summary statistics."""
+        """Calculate summary statistics.
+
+        Args:
+            all_matches: Constructs actually analyzed (may be capped).
+            duplication_groups: Detected duplicate groups.
+            suggestions: Refactoring suggestions.
+            total_found: Total constructs before the max_constructs cap was
+                applied.  When this exceeds len(all_matches), the summary
+                includes ``constructs_truncated=True`` and ``total_found`` so
+                callers can distinguish a cap-limited run from a full scan.
+        """
         total_duplicated_lines = sum(s["total_duplicated_lines"] for s in suggestions)
         potential_savings = sum(s["potential_line_savings"] for s in suggestions)
+        analyzed = len(all_matches)
 
-        return {
-            "total_constructs": len(all_matches),
+        stats: Dict[str, Any] = {
+            "total_constructs": analyzed,
             "duplicate_groups": len(duplication_groups),
             "total_duplicated_lines": total_duplicated_lines,
             "potential_line_savings": potential_savings,
         }
+
+        if total_found is not None and total_found > analyzed:
+            stats["constructs_truncated"] = True
+            stats["total_found"] = total_found
+
+        return stats
 
     def _empty_result(self, construct_type: str, execution_time: float) -> Dict[str, Any]:
         """Return empty result when no constructs found."""
