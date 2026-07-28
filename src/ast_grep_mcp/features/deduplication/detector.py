@@ -102,8 +102,12 @@ class DuplicationDetector:
     ) -> Dict[str, Any]:
         """Inner detection logic, separated from tracking/error handling."""
         self._validate_parameters(min_similarity, min_lines, max_constructs)
-        pattern = self._get_construct_pattern(construct_type)
-        all_matches = self._find_constructs(project_folder, pattern, max_constructs, exclude_patterns)
+        if self.language.lower() in self._JS_TS_LANGS:
+            yaml_rule = self._get_construct_yaml_rule(construct_type)
+            all_matches = self._find_constructs_by_rule(project_folder, yaml_rule, max_constructs, exclude_patterns)
+        else:
+            pattern = self._get_construct_pattern(construct_type)
+            all_matches = self._find_constructs(project_folder, pattern, max_constructs, exclude_patterns)
 
         if not all_matches:
             return self._empty_result(construct_type, time.time() - start_time)
@@ -215,12 +219,14 @@ class DuplicationDetector:
         if max_constructs < 0:
             raise ValueError("max_constructs must be 0 (unlimited) or positive")
 
-    _JS_TS_PATTERNS: Dict[str, str] = {
-        "function_definition": "const $NAME = $$$",
-        "arrow_function": "const $NAME = ($$$) => $$$",
-        "traditional_function": "function $NAME($$$) { $$$ }",
-        "method_definition": "$NAME($$$) { $$$ }",
-        "class_definition": "class $NAME",
+    # kind-based rules for JS/TS — these replace source patterns (TSD-02/03/04).
+    # Source patterns miss typed signatures and fail to parse as standalone TS.
+    _JS_TS_KIND_MAP: Dict[str, str] = {
+        "function_definition": "function_declaration",
+        "traditional_function": "function_declaration",
+        "arrow_function": "arrow_function",
+        "method_definition": "method_definition",
+        "class_definition": "class_declaration",
     }
     _C_LIKE_PATTERNS: Dict[str, str] = {
         "function_definition": "$TYPE $NAME($$$) { $$$ }",
@@ -235,17 +241,21 @@ class DuplicationDetector:
     _C_LIKE_LANGS = frozenset(["java", "csharp", "cpp", "c"])
 
     def _get_construct_pattern(self, construct_type: str) -> str:
-        """Get ast-grep pattern for the construct type and language."""
-        lang = self.language.lower()
+        """Get ast-grep source pattern for non-JS/TS languages."""
         patterns = dict(self._DEFAULT_PATTERNS)
-
-        if lang in self._JS_TS_LANGS:
-            js_pattern = self._JS_TS_PATTERNS.get(construct_type, "const $NAME = $$$")
-            patterns[construct_type] = js_pattern
-        elif lang in self._C_LIKE_LANGS:
+        if self.language.lower() in self._C_LIKE_LANGS:
             patterns.update(self._C_LIKE_PATTERNS)
-
         return patterns.get(construct_type, patterns["function_definition"])
+
+    def _get_construct_yaml_rule(self, construct_type: str) -> str:
+        """Build an inline YAML rule for kind-based JS/TS construct discovery.
+
+        Kind-based rules match on the AST node type rather than a source
+        pattern, so typed parameters and return annotations are included
+        automatically (fixes TSD-02, TSD-03, TSD-04).
+        """
+        kind = self._JS_TS_KIND_MAP.get(construct_type, "function_declaration")
+        return f"id: dedup-construct\nlanguage: {self.language}\nrule:\n  kind: {kind}\n"
 
     def _apply_exclude_patterns(self, all_matches: List[Dict[str, Any]], exclude_patterns: List[str]) -> List[Dict[str, Any]]:
         """Filter matches by excluded path patterns, logging if any were removed."""
@@ -273,6 +283,32 @@ class DuplicationDetector:
             stream_ast_grep_results(
                 "run",
                 args + ["--json=stream", project_folder],
+                max_results=0,
+                progress_interval=StreamDefaults.PROGRESS_INTERVAL,
+            )
+        )
+
+        all_matches = self._apply_exclude_patterns(raw_matches, exclude_patterns)
+
+        if max_constructs > 0 and len(all_matches) > max_constructs:
+            self.logger.info("construct_limit_reached", total_found=len(all_matches), max_constructs=max_constructs)
+            all_matches = all_matches[:max_constructs]
+
+        return all_matches
+
+    def _find_constructs_by_rule(self, project_folder: str, yaml_rule: str, max_constructs: int, exclude_patterns: List[str]) -> List[Dict[str, Any]]:
+        """Find constructs using a kind-based YAML rule (for JS/TS languages).
+
+        Uses ``scan --inline-rules`` so AST node kind is the selector rather
+        than a source pattern.  This avoids the recall and parse-error problems
+        that affect source-pattern matching on typed TypeScript code.
+        """
+        self.logger.info("searching_constructs_by_rule", language=self.language)
+
+        raw_matches = list(
+            stream_ast_grep_results(
+                "scan",
+                ["--inline-rules", yaml_rule, "--json=stream", project_folder],
                 max_results=0,
                 progress_interval=StreamDefaults.PROGRESS_INTERVAL,
             )

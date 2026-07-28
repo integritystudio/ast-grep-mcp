@@ -138,45 +138,56 @@ class TestGetConstructPattern:
 
         assert "class $NAME" in pattern
 
-    def test_javascript_function_pattern(self):
-        """Test JavaScript function pattern."""
+    def test_javascript_uses_yaml_rule_not_pattern(self):
+        """JS/TS uses kind-based YAML rules, not source patterns (TSD-02/03/04)."""
         detector = DuplicationDetector(language="javascript")
+        rule = detector._get_construct_yaml_rule("function_definition")
+        assert "kind: function_declaration" in rule
+        assert "language: javascript" in rule
 
-        pattern = detector._get_construct_pattern("function_definition")
-
-        assert "const $NAME" in pattern
-
-    def test_typescript_function_pattern(self):
-        """Test TypeScript function pattern."""
+    def test_typescript_yaml_rule_function_declaration(self):
+        """TypeScript function_definition maps to function_declaration kind."""
         detector = DuplicationDetector(language="typescript")
+        rule = detector._get_construct_yaml_rule("function_definition")
+        assert "kind: function_declaration" in rule
+        assert "language: typescript" in rule
 
-        pattern = detector._get_construct_pattern("function_definition")
+    def test_typescript_yaml_rule_arrow_function(self):
+        """TypeScript arrow_function kind."""
+        detector = DuplicationDetector(language="typescript")
+        rule = detector._get_construct_yaml_rule("arrow_function")
+        assert "kind: arrow_function" in rule
 
-        assert "const $NAME" in pattern
+    def test_typescript_yaml_rule_method_definition(self):
+        """TypeScript method_definition uses method_definition kind (not a broken source pattern)."""
+        detector = DuplicationDetector(language="typescript")
+        rule = detector._get_construct_yaml_rule("method_definition")
+        assert "kind: method_definition" in rule
 
-    def test_javascript_arrow_function_pattern(self):
-        """Test JavaScript arrow function pattern."""
-        detector = DuplicationDetector(language="javascript")
+    def test_typescript_yaml_rule_traditional_function(self):
+        """Traditional function also maps to function_declaration kind."""
+        detector = DuplicationDetector(language="typescript")
+        rule = detector._get_construct_yaml_rule("traditional_function")
+        assert "kind: function_declaration" in rule
 
-        pattern = detector._get_construct_pattern("arrow_function")
+    def test_typescript_yaml_rule_class_definition(self):
+        """TypeScript class_definition maps to class_declaration kind."""
+        detector = DuplicationDetector(language="typescript")
+        rule = detector._get_construct_yaml_rule("class_definition")
+        assert "kind: class_declaration" in rule
 
-        assert "=>" in pattern
+    def test_tsx_yaml_rule_function(self):
+        """TSX uses kind-based YAML rule."""
+        detector = DuplicationDetector(language="tsx")
+        rule = detector._get_construct_yaml_rule("function_definition")
+        assert "kind: function_declaration" in rule
+        assert "language: tsx" in rule
 
-    def test_javascript_traditional_function_pattern(self):
-        """Test JavaScript traditional function pattern."""
-        detector = DuplicationDetector(language="javascript")
-
-        pattern = detector._get_construct_pattern("traditional_function")
-
-        assert "function $NAME" in pattern
-
-    def test_javascript_method_pattern(self):
-        """Test JavaScript method pattern."""
-        detector = DuplicationDetector(language="javascript")
-
-        pattern = detector._get_construct_pattern("method_definition")
-
-        assert "$NAME($$$)" in pattern
+    def test_yaml_rule_unknown_construct_falls_back_to_function_declaration(self):
+        """Unknown construct type defaults to function_declaration kind."""
+        detector = DuplicationDetector(language="typescript")
+        rule = detector._get_construct_yaml_rule("unknown_type")
+        assert "kind: function_declaration" in rule
 
     def test_java_function_pattern(self):
         """Test Java function pattern."""
@@ -202,21 +213,19 @@ class TestGetConstructPattern:
 
         assert "def $NAME" in pattern
 
-    def test_jsx_uses_javascript_patterns(self):
-        """Test that JSX uses JavaScript patterns."""
+    def test_jsx_uses_yaml_rule(self):
+        """JSX uses kind-based YAML rules for construct discovery."""
         detector = DuplicationDetector(language="jsx")
+        rule = detector._get_construct_yaml_rule("function_definition")
+        assert "kind: function_declaration" in rule
+        assert "language: jsx" in rule
 
-        pattern = detector._get_construct_pattern("function_definition")
-
-        assert "const $NAME" in pattern
-
-    def test_tsx_uses_javascript_patterns(self):
-        """Test that TSX uses JavaScript patterns."""
+    def test_tsx_uses_yaml_rule(self):
+        """TSX uses kind-based YAML rules for construct discovery."""
         detector = DuplicationDetector(language="tsx")
-
-        pattern = detector._get_construct_pattern("function_definition")
-
-        assert "const $NAME" in pattern
+        rule = detector._get_construct_yaml_rule("function_definition")
+        assert "kind: function_declaration" in rule
+        assert "language: tsx" in rule
 
     def test_javascript_class_definition_uses_class_pattern(self):
         """Test that JS class_definition returns 'class $NAME', not const fallback (BUG-05)."""
@@ -945,13 +954,11 @@ class TestProcessGroupConnections:
 class TestEdgeCases:
     """Tests for edge cases to improve coverage."""
 
-    def test_javascript_unknown_construct_default(self):
-        """Test that unknown JS construct type defaults to const pattern."""
+    def test_javascript_unknown_construct_yaml_default(self):
+        """Unknown JS construct type defaults to function_declaration kind."""
         detector = DuplicationDetector(language="javascript")
-
-        pattern = detector._get_construct_pattern("unknown_custom_type")
-
-        assert "const $NAME" in pattern
+        rule = detector._get_construct_yaml_rule("unknown_custom_type")
+        assert "kind: function_declaration" in rule
 
     def test_group_duplicates_all_below_min_lines(self):
         """Test group_duplicates when all matches are below min_lines."""
