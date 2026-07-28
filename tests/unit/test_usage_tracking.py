@@ -486,7 +486,7 @@ class TestIntegrationWithDetector:
         from ast_grep_mcp.features.deduplication.detector import DuplicationDetector
 
         # Create a mock project folder that doesn't require real files
-        with patch.object(DuplicationDetector, "_find_constructs", return_value=[]):
+        with patch.object(DuplicationDetector, "_find_constructs", return_value=([], 0)):
             detector = DuplicationDetector()
             detector.find_duplication("/fake/path")
 

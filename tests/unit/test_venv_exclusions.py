@@ -63,7 +63,7 @@ def test_duplication_detector_enforces_venv_excludes_with_custom_patterns(monkey
 
     def _fake_find_constructs(project_folder, pattern, max_constructs, exclude_patterns):
         captured["exclude_patterns"] = list(exclude_patterns)
-        return []
+        return [], 0
 
     monkeypatch.setattr(detector, "_find_constructs", _fake_find_constructs)
     detector.find_duplication(project_folder=str(tmp_path), exclude_patterns=["node_modules"])
