@@ -558,8 +558,9 @@ class DuplicationDetector:
             ]
             if len(body_lines) > DetectorDefaults.DELEGATION_MAX_BODY_STATEMENTS:
                 return False
-            # Check if the body is a single call expression
-            if body_lines and not any(self._RE_CALL_EXPR.match(ln) for ln in body_lines):
+            # An empty body (pass/stub) is not a delegation wrapper; at least one
+            # delegating call expression must be present.
+            if not body_lines or not any(self._RE_CALL_EXPR.match(ln) for ln in body_lines):
                 return False
         return True
 

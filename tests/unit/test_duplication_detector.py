@@ -1129,6 +1129,15 @@ class TestDelegationWrapperFilter:
         detector = DuplicationDetector()
         assert detector._is_delegation_wrapper_group([]) is False
 
+    def test_empty_body_not_a_delegation_wrapper(self):
+        """Functions with no body (pass/stub) must not be classified as delegation wrappers."""
+        detector = DuplicationDetector()
+        group = [
+            _make_match("def noop(self):\n    pass", "a.py"),
+            _make_match("def noop(self):\n    pass", "b.py"),
+        ]
+        assert detector._is_delegation_wrapper_group(group) is False
+
 
 class TestParallelFormatterFilter:
     """Tests for _is_parallel_formatter_group."""
