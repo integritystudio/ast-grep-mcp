@@ -30,25 +30,25 @@ def _make_match(text: str, file: str = "a.ts", start_line: int = 1) -> Dict[str,
 # ── Fixture strings ──────────────────────────────────────────────────────────
 
 _PROCESS_USER = textwrap.dedent("""\
-    function processUserData(user: User): string {
-      const validated = validateInput(user.id);
+    function processUserData(item: Item): string {
+      const validated = validateInput(item.id);
       if (!validated) {
-        throw new Error("Invalid user id");
+        throw new Error("Invalid item id");
       }
-      const result = transformData(user.name, user.email);
-      logOperation("process_user", user.id);
+      const result = transformData(item.name, item.email);
+      logOperation("process_user", item.id);
       return result;
     }
 """)
 
 _PROCESS_ORDER = textwrap.dedent("""\
-    function processOrderData(order: Order): string {
-      const validated = validateInput(order.id);
+    function processOrderData(item: Item): string {
+      const validated = validateInput(item.id);
       if (!validated) {
-        throw new Error("Invalid order id");
+        throw new Error("Invalid item id");
       }
-      const result = transformData(order.customerId.toString(), order.total.toString());
-      logOperation("process_order", order.id);
+      const result = transformData(item.name, item.email);
+      logOperation("process_order", item.id);
       return result;
     }
 """)
@@ -60,11 +60,6 @@ _PROCESS_ORDER = textwrap.dedent("""\
 class TestGroupDuplicatesRecall:
     """group_duplicates must find structurally near-identical TS functions."""
 
-    @pytest.mark.xfail(
-        reason="TSD-01: structure-hash bucketing isolates 99% of functions into singletons; "
-        "passes after fix-bucketing-recall is merged",
-        strict=False,
-    )
     def test_finds_near_identical_typed_functions(self):
         """Two typed TS functions with the same control flow should form a group."""
         detector = DuplicationDetector(language="typescript")
