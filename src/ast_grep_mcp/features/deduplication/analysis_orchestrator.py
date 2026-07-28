@@ -135,8 +135,17 @@ class DeduplicationAnalysisOrchestrator:
         self.logger.info("analysis_start", **config.to_dict())
 
         # Step 1: Find duplicates (0% -> 25%)
+        # Ensure the detector is initialised with the correct language so the
+        # detector_initialized log entry is accurate (TSD-05).  The lazy
+        # property defaulted to language="python" and then mutated language
+        # after the fact, causing every non-Python analysis to log python.
+        # We only recreate a real DuplicationDetector; injected test doubles
+        # (isinstance check = False) are left untouched.
         report_progress("Finding duplicate code", 0.0)
-        self.detector.language = config.language
+        if not hasattr(self, "_detector") or (
+            isinstance(self._detector, DuplicationDetector) and self._detector.language != config.language
+        ):
+            self._detector = DuplicationDetector(language=config.language)
         duplication_results = self.detector.find_duplication(
             project_folder=config.project_path,
             construct_type="function_definition",
