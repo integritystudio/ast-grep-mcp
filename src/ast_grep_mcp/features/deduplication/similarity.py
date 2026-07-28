@@ -11,7 +11,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Literal, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple
 
 from datasketch import MinHash, MinHashLSH
 
@@ -323,8 +323,21 @@ class MinHashSimilarity:
         self,
         code_items: List[Tuple[str, str]],
         min_similarity: float = DeduplicationDefaults.MIN_SIMILARITY,
+        scorer: Optional[Callable[[str, str], float]] = None,
     ) -> List[Tuple[str, str, float]]:
-        """Find all pairs of similar code snippets using LSH."""
+        """Find all pairs of similar code snippets using LSH.
+
+        Args:
+            code_items: ``(key, code)`` pairs to compare.
+            min_similarity: Threshold a pair must meet to be returned.
+            scorer: Final similarity function applied to each LSH candidate.
+                Defaults to this class's MinHash estimate. Callers with a more
+                precise (and more expensive) measure should pass it here —
+                MinHash under-estimates relative to AST/semantic scoring, so
+                verifying with the estimate discards true positives that
+                ``lsh_recall_margin`` deliberately admitted as candidates
+                (TSD-07).
+        """
         if not code_items:
             return []
 
@@ -337,7 +350,7 @@ class MinHashSimilarity:
         if use_fallback:
             candidates = self._generate_all_pairs(code_items)
 
-        similar_pairs = self._verify_candidates(candidates, code_items, min_similarity)
+        similar_pairs = self._verify_candidates(candidates, code_items, min_similarity, scorer)
         self.logger.info(
             "similar_pairs_verified",
             candidates_checked=len(candidates),
@@ -417,13 +430,15 @@ class MinHashSimilarity:
         candidates: Set[Tuple[str, str]],
         code_items: List[Tuple[str, str]],
         min_similarity: float,
+        scorer: Optional[Callable[[str, str], float]] = None,
     ) -> List[Tuple[str, str, float]]:
         """Filter candidate pairs to those meeting the minimum similarity threshold."""
         code_map = dict(code_items)
+        score = scorer or self.estimate_similarity
         return [
             (k1, k2, sim)
             for k1, k2 in candidates
-            for sim in (self.estimate_similarity(code_map[k1], code_map[k2]),)
+            for sim in (score(code_map[k1], code_map[k2]),)
             if sim >= min_similarity
         ]
 

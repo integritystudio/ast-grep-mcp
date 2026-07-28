@@ -433,10 +433,16 @@ class DuplicationDetector:
         # Build keyed code items for MinHash LSH candidate retrieval.
         code_items = [(str(i), m.get("text", "")) for i, m in enumerate(filtered_matches)]
 
-        # find_similar_pairs uses LSH + MinHash verification to return all pairs
-        # whose estimated similarity meets min_similarity.  It falls back to
-        # all-pairs for small corpora, preserving existing behaviour there.
-        similar_pairs = self._minhash.find_all_similar_pairs(code_items, min_similarity)
+        # LSH retrieves candidates cheaply at a widened threshold; the final
+        # keep/drop decision uses this detector's configured scorer.  Verifying
+        # with MinHash instead would discard true positives the widened
+        # threshold deliberately admitted, and would bypass similarity_mode
+        # entirely (TSD-07).
+        similar_pairs = self._minhash.find_all_similar_pairs(
+            code_items,
+            min_similarity,
+            scorer=self.calculate_similarity,
+        )
 
         if not similar_pairs:
             return []

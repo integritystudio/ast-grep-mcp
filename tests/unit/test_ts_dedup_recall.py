@@ -165,3 +165,108 @@ class TestConstructYamlRuleValidity:
         parsed = yaml.safe_load(rule)
         kind = parsed["rule"]["kind"]
         assert isinstance(kind, str) and kind, f"kind must be a non-empty string, got: {kind!r}"
+
+
+# ── TSD-07: verification must use the configured scorer, not MinHash ─────────
+
+# Real duplicate pair from ~/.claude/hooks lib/trace-context.ts (HEAD at
+# 2026-07-28).  These differ by exactly two tokens — the type name and the path
+# helper — and PromptTraceContext was a deprecated alias of TraceContext, so
+# they were the same type.  MinHash estimates 0.7734 for this pair while the
+# hybrid scorer gives 0.8715: verifying LSH candidates with the MinHash
+# estimate discarded it, even though lsh_recall_margin had correctly admitted
+# it as a candidate.
+_SAVE_SESSION_CTX = textwrap.dedent("""\
+    function saveSessionContext(sessionId: string, traceId: string, spanId: string): void {
+      try {
+        ensureDirExists(TRACE_CTX_DIR);
+        const ctx: TraceContext = { traceId, spanId, timestamp: Date.now() };
+        writeFileSync(getSessionTracePath(sessionId), JSON.stringify(ctx));
+      } catch {
+        // Non-critical — silently fail
+      }
+    }
+""")
+
+_SAVE_PROMPT_CTX = textwrap.dedent("""\
+    function savePromptContext(sessionId: string, traceId: string, spanId: string): void {
+      try {
+        ensureDirExists(TRACE_CTX_DIR);
+        const ctx: PromptTraceContext = { traceId, spanId, timestamp: Date.now() };
+        writeFileSync(getContextPath(sessionId), JSON.stringify(ctx));
+      } catch {
+        // Non-critical — silently fail
+      }
+    }
+""")
+
+_MIN_SIMILARITY = 0.80
+
+
+class TestVerificationUsesConfiguredScorer:
+    """TSD-07: LSH candidates must be verified with the detector's scorer.
+
+    MinHash under-estimates relative to AST/semantic scoring.  Verifying with
+    the estimate against the full threshold makes lsh_recall_margin
+    self-defeating: it widens candidate generation, then re-applies the strict
+    threshold using the very metric whose imprecision the margin absorbs.
+    """
+
+    def test_pair_below_minhash_but_above_hybrid_is_found(self) -> None:
+        """The pair MinHash under-scores is still grouped in hybrid mode."""
+        detector = DuplicationDetector(language="typescript", similarity_mode="hybrid")
+
+        minhash_score = detector._minhash.estimate_similarity(_SAVE_SESSION_CTX, _SAVE_PROMPT_CTX)
+        hybrid_score = detector.calculate_similarity(_SAVE_SESSION_CTX, _SAVE_PROMPT_CTX)
+
+        # Guard the premise: without this gap the test proves nothing.
+        assert minhash_score < _MIN_SIMILARITY <= hybrid_score, (
+            f"fixture no longer exercises TSD-07 "
+            f"(minhash={minhash_score:.4f}, hybrid={hybrid_score:.4f})"
+        )
+
+        groups = detector.group_duplicates(
+            [
+                _make_match(_SAVE_SESSION_CTX, file="trace-context.ts", start_line=47),
+                _make_match(_SAVE_PROMPT_CTX, file="trace-context.ts", start_line=85),
+            ],
+            _MIN_SIMILARITY,
+            min_lines=5,
+        )
+
+        assert len(groups) == 1, "hybrid-scored duplicate pair was dropped at verification"
+        assert len(groups[0]) == 2
+
+    def test_minhash_mode_still_uses_minhash(self) -> None:
+        """similarity_mode='minhash' is honoured — the scorer is not hardcoded."""
+        detector = DuplicationDetector(language="typescript", similarity_mode="minhash")
+
+        groups = detector.group_duplicates(
+            [
+                _make_match(_SAVE_SESSION_CTX, file="trace-context.ts", start_line=47),
+                _make_match(_SAVE_PROMPT_CTX, file="trace-context.ts", start_line=85),
+            ],
+            _MIN_SIMILARITY,
+            min_lines=5,
+        )
+
+        assert groups == [], "minhash mode should not recover a pair MinHash scores below threshold"
+
+    def test_find_all_similar_pairs_defaults_to_minhash_estimate(self) -> None:
+        """The standalone MinHash API is unchanged when no scorer is injected."""
+        similarity = DuplicationDetector(language="typescript")._minhash
+        items = [("a", _SAVE_SESSION_CTX), ("b", _SAVE_PROMPT_CTX)]
+
+        assert similarity.find_all_similar_pairs(items, _MIN_SIMILARITY) == []
+
+    def test_injected_scorer_is_used_for_verification(self) -> None:
+        """An injected scorer overrides the MinHash estimate."""
+        similarity = DuplicationDetector(language="typescript")._minhash
+        items = [("a", _SAVE_SESSION_CTX), ("b", _SAVE_PROMPT_CTX)]
+
+        pairs = similarity.find_all_similar_pairs(
+            items, _MIN_SIMILARITY, scorer=lambda _c1, _c2: 0.99
+        )
+
+        assert len(pairs) == 1
+        assert pairs[0][2] == pytest.approx(0.99)
