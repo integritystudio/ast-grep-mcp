@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 from ast_grep_mcp.features.condense.service import (
+    _is_test_path,
     _extract_generic_surface,
     _extract_js_ts_surface,
     _extract_python_surface,
@@ -105,6 +106,28 @@ class TestExtractJsTsSurface:
         kept = _extract_js_ts_surface(lines, include_docstrings=False)
         # Should fall back to returning all lines
         assert len(kept) > 0
+
+
+class TestSurfaceBoundaries:
+    def test_python_blank_line_inside_body_does_not_leak_body(self):
+        lines = ["def f(x):", "    a = 1", "", "    secret = a + x", "    return secret", "", "def g():", "    pass"]
+        out = _extract_python_surface(lines, include_docstrings=False)
+        assert not any("secret" in line for line in out)
+        assert any(line.startswith("def g") for line in out)
+
+    def test_js_one_line_export_does_not_capture_following_code(self):
+        lines = ["export const A = 1;", "const internal = 2;", "function helper() {", "  return internal;", "}"]
+        assert _extract_js_ts_surface(lines, include_docstrings=False) == ["export const A = 1;"]
+
+
+class TestIsTestPath:
+    def test_conventional_test_paths(self):
+        for rel in ["tests/test_app.py", "src/__tests__/a.ts", "pkg/app_test.go", "web/button.spec.tsx", "test_x.py"]:
+            assert _is_test_path(Path(rel)), rel
+
+    def test_lookalike_names_are_not_tests(self):
+        for rel in ["latest/app.py", "src/contest.py", "testing_utils/x.py", "attestation.py"]:
+            assert not _is_test_path(Path(rel)), rel
 
 
 class TestExtractGenericSurface:

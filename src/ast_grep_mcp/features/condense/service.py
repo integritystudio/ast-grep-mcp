@@ -5,6 +5,7 @@ Provides extract_surface_impl, condense_pack_impl, and supporting helpers.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -254,8 +255,12 @@ def _extract_python_surface(lines: List[str], include_docstrings: bool) -> List[
             i += consumed
         elif body_indent is not None and stripped and indent >= body_indent:
             pass  # skip body line
+        elif not stripped:
+            # Blank lines do not end a body; keep at most one in a row
+            if kept and kept[-1]:
+                kept.append("")
         else:
-            if body_indent is not None and (not stripped or indent < body_indent):
+            if body_indent is not None and indent < body_indent:
                 body_indent = None
             kept.append(line.rstrip())
         i += 1
@@ -353,7 +358,8 @@ def _extract_js_ts_surface(lines: List[str], include_docstrings: bool) -> List[s
         if not in_export:
             continue
         kept.append(line.rstrip())
-        if brace_depth <= export_brace_start and delta < 0:
+        # Ends on the closing brace, or on a statement end once back at the starting depth
+        if brace_depth <= export_brace_start and (delta < 0 or line.rstrip().endswith((";", "}"))):
             in_export = False
 
     return kept if kept else lines
@@ -404,7 +410,8 @@ def _process_single_file(
         return None
 
     lang = _detect_language(fp)
-    effective_strategy = _route_strategy(fp, strategy, file_type_routing)
+    rel_path = fp.relative_to(root) if fp.is_relative_to(root) else fp
+    effective_strategy = _route_strategy(rel_path, strategy, file_type_routing)
     if effective_strategy == "exclude":
         return None
 
@@ -617,6 +624,16 @@ def _detect_language(fp: Path) -> str:
     return ext_to_lang.get(fp.suffix.lower(), "unknown")
 
 
+_TEST_DIR_NAMES = frozenset({"test", "tests", "__tests__", "spec"})
+_TEST_FILE_STEM = re.compile(r"^test_|_test$|\.(?:test|spec)$")
+
+
+def _is_test_path(rel_path: Path) -> bool:
+    """Test file by convention: in a test directory or named test_x / x_test / x.test / x.spec."""
+    in_test_dir = any(part.lower() in _TEST_DIR_NAMES for part in rel_path.parts[:-1])
+    return in_test_dir or bool(_TEST_FILE_STEM.search(rel_path.stem.lower()))
+
+
 def _route_strategy(fp: Path, strategy: str, file_type_routing: bool) -> str:
     """Determine effective strategy for this file."""
     if not file_type_routing:
@@ -642,8 +659,7 @@ def _route_strategy(fp: Path, strategy: str, file_type_routing: bool) -> str:
         return "archival"
 
     # Test files — signature extraction
-    parts = fp.parts
-    if any(p.startswith("test") or p.endswith("test") for p in parts):
+    if _is_test_path(fp):
         return "ai_chat"
 
     return strategy
