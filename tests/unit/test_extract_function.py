@@ -283,6 +283,35 @@ def process_user(user):
         assert "normalize_email(email)" in modified_content
 
 
+    def test_extract_after_replaces_the_selection(self, tmp_path):
+        """With extract_location='after' the call must replace the selected lines, not lines below them."""
+        test_file = tmp_path / "test.py"
+        test_file.write_text(
+            "\ndef process_user(user):\n"
+            "    email = user['email']\n"
+            "    normalized_email = email.lower().strip()\n"
+            "    domain = normalized_email.split('@')[1]\n"
+            "    return {'email': normalized_email, 'domain': domain}\n"
+        )
+
+        result = extract_function_tool(
+            project_folder=str(tmp_path),
+            file_path=str(test_file),
+            start_line=4,
+            end_line=5,
+            language="python",
+            function_name="normalize_email",
+            extract_location="after",
+            dry_run=False,
+        )
+
+        assert result["success"]
+        lines = test_file.read_text().split("\n")
+        assert lines[3].strip() == "normalized_email, domain = normalize_email(email)"
+        assert lines[4].strip() == "return {'email': normalized_email, 'domain': domain}"
+        assert lines[5].startswith("def normalize_email")
+
+
 class TestJavaScriptExtraction:
     """Tests for JavaScript/TypeScript extraction."""
 

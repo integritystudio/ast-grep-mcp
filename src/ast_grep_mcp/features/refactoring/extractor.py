@@ -465,11 +465,16 @@ class FunctionExtractor:
 
             function_lines = [line + "\n" for line in function_body.split("\n")]
             function_lines.append("\n\n")
-            lines[insertion_line - 1 : insertion_line - 1] = function_lines
+            call_lines = [call_replacement + "\n"]
+            selection_slice = slice(selection.start_line - 1, selection.end_line)
 
-            adjusted_start = selection.start_line + len(function_lines)
-            adjusted_end = selection.end_line + len(function_lines)
-            lines[adjusted_start - 1 : adjusted_end] = [call_replacement + "\n"]
+            # Apply the lower edit first so the other's line numbers stay valid
+            if insertion_line > selection.end_line:
+                lines[insertion_line - 1 : insertion_line - 1] = function_lines
+                lines[selection_slice] = call_lines
+            else:
+                lines[selection_slice] = call_lines
+                lines[insertion_line - 1 : insertion_line - 1] = function_lines
 
             write_file_lines(selection.file_path, lines)
             logger.info("extraction_applied", file_path=selection.file_path, backup_id=backup_id)
