@@ -283,8 +283,11 @@ def process_user(user):
         assert "normalize_email(email)" in modified_content
 
 
-    def test_extract_after_replaces_the_selection(self, tmp_path):
-        """With extract_location='after' the call must replace the selected lines, not lines below them."""
+    @pytest.mark.parametrize("location", ["before", "after"])
+    def test_extracted_function_is_module_level_and_parses(self, tmp_path, location):
+        """The function goes outside the enclosing def, dedented, and the call replaces the selection."""
+        import ast
+
         test_file = tmp_path / "test.py"
         test_file.write_text(
             "\ndef process_user(user):\n"
@@ -292,6 +295,7 @@ def process_user(user):
             "    normalized_email = email.lower().strip()\n"
             "    domain = normalized_email.split('@')[1]\n"
             "    return {'email': normalized_email, 'domain': domain}\n"
+            "\n\ndef other():\n    return 1\n"
         )
 
         result = extract_function_tool(
@@ -301,15 +305,17 @@ def process_user(user):
             end_line=5,
             language="python",
             function_name="normalize_email",
-            extract_location="after",
+            extract_location=location,
             dry_run=False,
         )
 
         assert result["success"]
-        lines = test_file.read_text().split("\n")
-        assert lines[3].strip() == "normalized_email, domain = normalize_email(email)"
-        assert lines[4].strip() == "return {'email': normalized_email, 'domain': domain}"
-        assert lines[5].startswith("def normalize_email")
+        tree = ast.parse(test_file.read_text())
+        top_level = [node.name for node in tree.body if isinstance(node, ast.FunctionDef)]
+        expected = ["normalize_email", "process_user", "other"] if location == "before" else ["process_user", "normalize_email", "other"]
+        assert top_level == expected
+        process_user = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "process_user")
+        assert "normalize_email(email)" in ast.unparse(process_user)
 
 
 class TestJavaScriptExtraction:

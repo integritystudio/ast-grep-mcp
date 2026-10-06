@@ -7,6 +7,7 @@ This module handles:
 - Inserting extracted functions at proper locations
 """
 
+import textwrap
 from typing import Dict, List, Optional
 
 from ast_grep_mcp.core.logging import get_logger
@@ -256,7 +257,8 @@ class FunctionExtractor:
         if signature.docstring:
             lines.extend(indent_lines(signature.docstring))
 
-        lines.extend(indent_lines(selection.content))
+        # The selection keeps its original nesting; re-indent from column 0
+        lines.extend(indent_lines(textwrap.dedent(selection.content)))
 
         if selection.return_values:
             return_stmt = self._generate_return_statement(selection.return_values)
@@ -396,17 +398,41 @@ class FunctionExtractor:
         Returns:
             Line number for insertion (1-indexed)
         """
-        if extract_location == "before":
-            # Insert before the selection, leaving some space
-            return max(1, selection.start_line - 2)
-        elif extract_location == "after":
-            # Insert after the selection
-            return selection.end_line + 2
-        elif extract_location == "top":
+        if extract_location == "top":
             # Insert at top of file (after imports)
             return self._find_import_section_end(selection.file_path)
-        else:
-            return selection.start_line - 2
+
+        # A module-level function must not land inside the selection's enclosing definition
+        lines = read_file_lines(selection.file_path)
+        if extract_location == "after":
+            return self._line_after_enclosing_definition(lines, selection)
+        return self._line_before_enclosing_definition(lines, selection)
+
+    @staticmethod
+    def _is_top_level_code(line: str) -> bool:
+        stripped = line.strip()
+        return bool(stripped) and not line[0].isspace() and not stripped.startswith(("#", "//"))
+
+    def _line_before_enclosing_definition(self, lines: List[str], selection: CodeSelection) -> int:
+        """1-indexed line of the enclosing top-level definition (above its decorators)."""
+        if not selection.indentation:
+            return selection.start_line
+        index = selection.start_line - 1
+        while index > 0 and not self._is_top_level_code(lines[index]):
+            index -= 1
+        while index > 0 and lines[index - 1].lstrip().startswith("@"):
+            index -= 1
+        return index + 1
+
+    def _line_after_enclosing_definition(self, lines: List[str], selection: CodeSelection) -> int:
+        """1-indexed line just past the enclosing top-level definition."""
+        if not selection.indentation:
+            return selection.end_line + 1
+        for index in range(selection.end_line, len(lines)):
+            if self._is_top_level_code(lines[index]):
+                # A closing brace at column 0 belongs to the enclosing definition
+                return index + 2 if lines[index].lstrip().startswith("}") else index + 1
+        return len(lines) + 1
 
     def _generate_diff_preview(
         self,
@@ -465,6 +491,8 @@ class FunctionExtractor:
 
             function_lines = [line + "\n" for line in function_body.split("\n")]
             function_lines.append("\n\n")
+            if insertion_line > 1 and lines[insertion_line - 2].strip():
+                function_lines.insert(0, "\n\n")
             call_lines = [call_replacement + "\n"]
             selection_slice = slice(selection.start_line - 1, selection.end_line)
 
