@@ -109,7 +109,7 @@ fix: import * as z from "zod"; import { $$EXPORTS } from "zod"
 message: "Separate namespace and named imports"
 severity: warning
 """,
-    "import-zod-subpath-to-namespace": """id: import-zod-subpath-to-namespace
+    "import-zod-subpath-to-namespace": r"""id: import-zod-subpath-to-namespace
 language: typescript
 rule:
   kind: import_statement

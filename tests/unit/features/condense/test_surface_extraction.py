@@ -4,10 +4,10 @@ import tempfile
 from pathlib import Path
 
 from ast_grep_mcp.features.condense.service import (
-    _is_test_path,
     _extract_generic_surface,
     _extract_js_ts_surface,
     _extract_python_surface,
+    _is_test_path,
     extract_surface_impl,
 )
 
