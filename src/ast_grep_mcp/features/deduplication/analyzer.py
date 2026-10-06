@@ -5,6 +5,7 @@ This module provides functionality for analyzing code patterns,
 identifying variations, and classifying differences between duplicate code blocks.
 """
 
+import functools
 import json
 import os
 import subprocess
@@ -19,6 +20,35 @@ from ...models.deduplication import VariationCategory, VariationSeverity
 from .scoring_scales import VariationScoreCutoff, VariationScoreScale
 
 IDENTIFIER_CONTEXT_WINDOW_CHARS = 20
+
+_INLINE_RULE_ID = "dedup-analyzer-scan"
+
+
+@functools.lru_cache(maxsize=None)
+def _is_valid_kind(language: str, kind: str) -> bool:
+    """Return True if ast-grep's grammar for language has a node kind named kind.
+
+    ast-grep rejects a whole rule when any `kind` in it is unknown to the grammar,
+    so multi-language `any` lists must be filtered per language first.
+    """
+    rule_yaml = yaml.dump({"id": _INLINE_RULE_ID, "language": language, "rule": {"kind": kind}})
+    with tempfile.TemporaryDirectory() as empty_dir:
+        result = subprocess.run(
+            ["ast-grep", "scan", "--inline-rules", rule_yaml, empty_dir],
+            capture_output=True,
+            text=True,
+            timeout=SubprocessDefaults.GREP_TIMEOUT_SECONDS,
+        )
+    return result.returncode == 0
+
+
+def _kind_rule_for_language(rule: Dict[str, Any], language: str) -> Optional[Dict[str, Any]]:
+    """Drop kinds the language's grammar lacks; None if no valid kind remains."""
+    inner = rule["rule"]
+    if "any" in inner:
+        valid = [k for k in inner["any"] if _is_valid_kind(language, k["kind"])]
+        return {"any": valid} if valid else None
+    return inner if _is_valid_kind(language, inner["kind"]) else None
 
 _LANGUAGE_KEYWORDS: Dict[str, set[str]] = {
     "python": {
@@ -236,17 +266,29 @@ class PatternAnalyzer:
             for m in matches
         ]
 
-    def _run_literal_scan(self, temp_path: str, rule: Dict[str, Any], literal_type: str) -> List[Dict[str, Any]]:
+    def _scan_with_kind_rule(self, temp_path: str, rule: Dict[str, Any], language: str) -> Optional[str]:
+        """Run ast-grep scan with rule as an inline rule; return JSON stdout, or None on failure."""
+        inner = _kind_rule_for_language(rule, language)
+        if inner is None:
+            self.logger.warning("ast_grep_scan_no_valid_kinds", language=language)
+            return None
+        rule_yaml = yaml.dump({"id": _INLINE_RULE_ID, "language": language, "rule": inner})
+        result = subprocess.run(
+            ["ast-grep", "scan", "--inline-rules", rule_yaml, "--json", temp_path],
+            capture_output=True,
+            text=True,
+            timeout=SubprocessDefaults.GREP_TIMEOUT_SECONDS,
+        )
+        if result.returncode != 0:
+            self.logger.warning("ast_grep_scan_failed", language=language, returncode=result.returncode, stderr=result.stderr.strip())
+            return None
+        return result.stdout
+
+    def _run_literal_scan(self, temp_path: str, rule: Dict[str, Any], literal_type: str, language: str) -> List[Dict[str, Any]]:
         try:
-            result = subprocess.run(
-                ["ast-grep", "scan", "--rule", "-", "--json", temp_path],
-                input=yaml.dump(rule),
-                capture_output=True,
-                text=True,
-                timeout=SubprocessDefaults.GREP_TIMEOUT_SECONDS,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return self._parse_literal_matches(result.stdout, literal_type)
+            stdout = self._scan_with_kind_rule(temp_path, rule, language)
+            if stdout and stdout.strip():
+                return self._parse_literal_matches(stdout, literal_type)
             return []
         except subprocess.TimeoutExpired:
             self.logger.warning("literal_extraction_timeout", literal_type=literal_type)
@@ -265,7 +307,7 @@ class PatternAnalyzer:
             f.write(code)
             temp_path = f.name
         try:
-            return self._run_literal_scan(temp_path, rule, literal_type)
+            return self._run_literal_scan(temp_path, rule, literal_type, language)
         finally:
             try:
                 os.unlink(temp_path)
@@ -679,15 +721,11 @@ class PatternAnalyzer:
 
     def _run_conditional_scan(self, temp_path: str, rule: Dict[str, Any], code: str, language: str) -> List[Dict[str, Any]]:
         try:
-            result = subprocess.run(
-                ["ast-grep", "scan", "--rule", "-", "--json", temp_path],
-                input=yaml.dump(rule),
-                capture_output=True,
-                text=True,
-                timeout=SubprocessDefaults.GREP_TIMEOUT_SECONDS,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return self._parse_conditional_matches(result.stdout, language)
+            stdout = self._scan_with_kind_rule(temp_path, rule, language)
+            if stdout is None:
+                return self._extract_conditionals_regex(code, language)
+            if stdout.strip():
+                return self._parse_conditional_matches(stdout, language)
             return []
         except subprocess.TimeoutExpired:
             self.logger.warning("conditional_extraction_timeout", language=language)
@@ -778,22 +816,12 @@ class PatternAnalyzer:
 
     def _run_ast_grep_for_calls(self, temp_path: str, language: str, identifier: str) -> Optional[Dict[str, Any]]:
         """Run ast-grep to find nested function calls."""
-        rule = self._get_call_rule(language)
-        rule_yaml = yaml.dump(rule)
-
-        result = subprocess.run(
-            ["ast-grep", "scan", "--rule", "-", "--json", temp_path],
-            input=rule_yaml,
-            capture_output=True,
-            text=True,
-            timeout=SubprocessDefaults.GREP_TIMEOUT_SECONDS,
-        )
-
-        if result.returncode != 0 or not result.stdout.strip():
+        stdout = self._scan_with_kind_rule(temp_path, self._get_call_rule(language), language)
+        if not stdout or not stdout.strip():
             return None
 
         try:
-            matches = json.loads(result.stdout)
+            matches = json.loads(stdout)
             return self._find_nested_call_in_matches(matches, identifier)
         except json.JSONDecodeError:
             self.logger.warning("nested_call_parse_error", language=language)

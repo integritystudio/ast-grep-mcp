@@ -682,8 +682,19 @@ def _apply_single_fix(file_path: str, violation: RuleViolation, language: str) -
         return apply_pattern_fix(file_path, violation, fixed_code, language)
 
     # 2. Check for removal rules (no-console-log, no-debugger, etc.)
-    if violation.rule_id in _REMOVAL_RULES or not violation.fix_suggestion:
+    if violation.rule_id in _REMOVAL_RULES:
         return apply_removal_fix(file_path, violation, language)
+
+    # No known fix: deleting the flagged code (e.g. eval, SQL concat) would silently change behavior.
+    if not violation.fix_suggestion:
+        logger.debug(f"Skipping {violation.rule_id} at {file_path}:{violation.line}: no fix available")
+        return FixResult(
+            violation=violation,
+            success=True,
+            file_modified=False,
+            original_code=violation.code_snippet,
+            fix_type="skipped",
+        )
 
     # 3. Fallback: use the fix_suggestion as a literal pattern
     return apply_pattern_fix(file_path, violation, violation.fix_suggestion, language)

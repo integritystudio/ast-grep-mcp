@@ -295,12 +295,15 @@ CRYPTO_PATTERNS = {
 
 
 def _match_to_issue(match: Dict[str, Any], pattern_def: Dict[str, Any]) -> SecurityIssue:
+    range_info = match.get("range", {})
+    start = range_info.get("start", {})
+    end = range_info.get("end", {})
     return SecurityIssue(
         file=match.get("file", ""),
-        line=match.get("line", 1),
-        column=match.get("column", 1),
-        end_line=match.get("end_line", match.get("line", 1)),
-        end_column=match.get("end_column", 1),
+        line=start.get("line", 0) + 1,
+        column=start.get("column", 0) + 1,
+        end_line=end.get("line", 0) + 1,
+        end_column=end.get("column", 0) + 1,
         issue_type=pattern_def.get("issue_type", "unknown"),
         severity=pattern_def["severity"],
         title=pattern_def["title"],

@@ -13,6 +13,8 @@ import sys
 from typing import Any, Dict, List
 from unittest.mock import patch
 
+import pytest
+
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -125,7 +127,8 @@ class TestParameterExtraction:
         """Test detecting nested function calls."""
         code = "result = outer(inner(value))"
         nested = _detect_nested_function_call(code, "value", "python")
-        assert nested is not None or nested is None  # Can return None if no nesting
+        assert nested is not None
+        assert nested["nesting_depth"] == 2
 
     def test_parameter_type_enum(self):
         """Test ParameterType enum values."""
@@ -190,6 +193,32 @@ class TestComplexityScoring:
         assert get_complexity_level(5) == "medium"
         assert get_complexity_level(9) == "medium"
         assert get_complexity_level(10) == "high"
+
+
+class TestAstGrepScans:
+    """Real ast-grep scans behind literal, conditional and nested-call detection."""
+
+    SAMPLES = {
+        "python": 'x = 1\ny = "a"\nz = True\nif x == 2:\n    foo(bar(x))\n',
+        "javascript": 'const x = 1; const s = "a"; const b = true;\nif (x === 2) { foo(bar(x)); }\n',
+    }
+
+    @pytest.mark.parametrize("language", sorted(SAMPLES))
+    def test_extracts_each_literal_type(self, language: str) -> None:
+        analyzer = PatternAnalyzer()
+        code = self.SAMPLES[language]
+        counts = {t: len(analyzer._extract_literals_with_ast_grep(code, t, language)) for t in PatternAnalyzer._LITERAL_TYPES}
+        assert counts == {"number": 2, "string": 1, "boolean": 1}
+
+    @pytest.mark.parametrize("language", sorted(SAMPLES))
+    def test_extracts_conditionals(self, language: str) -> None:
+        assert PatternAnalyzer()._extract_conditionals(self.SAMPLES[language], language)
+
+    @pytest.mark.parametrize("language", sorted(SAMPLES))
+    def test_detects_nested_call(self, language: str) -> None:
+        nested = PatternAnalyzer().detect_nested_function_call(self.SAMPLES[language], "x", language)
+        assert nested is not None
+        assert nested["nesting_depth"] == 2
 
 
 def _fake_extract_literals(code: str, literal_type: str, language: str) -> List[Dict[str, Any]]:

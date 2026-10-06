@@ -173,6 +173,16 @@ class TestStreamAstGrepResultsSyncShim:
         assert len(results) == 2
         assert results[0]["file"] == "test.py"
 
+    @pytest.mark.asyncio
+    async def test_sync_shim_works_inside_running_event_loop(self):
+        """FastMCP calls sync tools on its event-loop thread; asyncio.run() must not be hit there."""
+        matches = [{"file": "test.py", "line": 1}]
+
+        with fake_ast_grep(stdout=json_stream(matches)):
+            results = list(stream_ast_grep_results("run", ["--json=stream", "/test"]))
+
+        assert results == matches
+
     def test_sync_shim_preserves_max_results(self):
         """Verify max_results is respected through sync shim."""
         matches = [{"file": f"test{i}.py"} for i in range(5)]

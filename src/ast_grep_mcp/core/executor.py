@@ -1,6 +1,7 @@
 """Command execution and ast-grep interface for ast-grep MCP server."""
 
 import asyncio
+import contextvars
 import json
 import os
 import shutil
@@ -8,8 +9,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import AsyncGenerator
-from typing import Any, Dict, Generator, List, Optional, Tuple, cast
+from collections.abc import AsyncGenerator, Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, Generator, List, Optional, Tuple, TypeVar, cast
 
 import sentry_sdk
 import yaml
@@ -22,6 +24,8 @@ from ast_grep_mcp.core.exceptions import (
 )
 from ast_grep_mcp.core.logging import get_logger
 from ast_grep_mcp.utils.tool_context import tool_context
+
+_T = TypeVar("_T")
 
 
 def _load_custom_languages() -> List[str]:
@@ -677,4 +681,21 @@ def stream_ast_grep_results(
             )
         ]
 
-    yield from asyncio.run(_collect())
+    yield from _run_coroutine_sync(_collect)
+
+
+def _run_coroutine_sync(coro_factory: Callable[[], Coroutine[Any, Any, _T]]) -> _T:
+    """Run a coroutine to completion from sync code, even inside a running event loop.
+
+    FastMCP calls sync tool handlers on its event-loop thread, where asyncio.run()
+    raises RuntimeError; in that case the coroutine runs on a worker thread with its
+    own loop, carrying the caller's contextvars.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro_factory())
+
+    ctx = contextvars.copy_context()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(ctx.run, lambda: asyncio.run(coro_factory())).result()
