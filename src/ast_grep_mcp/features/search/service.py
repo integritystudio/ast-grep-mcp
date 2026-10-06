@@ -466,10 +466,10 @@ def _execute_rule_search(
     json_arg = ["--json"] if output_format == "json" else []
 
     if max_results > 0:
-        # Use streaming for limited results
-        matches = []
-        for match in stream_ast_grep_results("scan", ["--inline-rules", yaml_rule, *json_arg, project_folder], max_results=max_results):
-            matches.append(match)
+        # Streaming parses one JSON object per line, so it always needs --json=stream
+        matches = list(
+            stream_ast_grep_results("scan", ["--inline-rules", yaml_rule, "--json=stream", project_folder], max_results=max_results)
+        )
 
         if output_format == "text":
             return format_matches_as_text(matches)

@@ -1,6 +1,7 @@
 """Query caching for ast-grep MCP server using cachetools."""
 
 import hashlib
+import json
 from typing import Any, Dict, List, Optional
 
 from cachetools import TTLCache
@@ -41,8 +42,8 @@ class QueryCache:
     Returns:
         Hash-based cache key
     """
-    key_parts = [command, project_folder] + sorted(args)
-    key_str = "|".join(key_parts)
+    # Order matters (flag/value pairs) and values may contain any separator, so serialize as JSON.
+    key_str = json.dumps([command, project_folder, *args])
     return hashlib.sha256(key_str.encode()).hexdigest()[: CacheDefaults.CACHE_KEY_LENGTH]
 
   def get(self, command: str, args: List[str], project_folder: str) -> Optional[List[Dict[str, Any]]]:
