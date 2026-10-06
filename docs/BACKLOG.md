@@ -13,12 +13,12 @@
 
 Full evidence and reproduction steps: [docs/typescript-dedup-gaps.md](typescript-dedup-gaps.md). Verified against `~/.claude/hooks` (60 `.ts` files, 313 function declarations) — the TypeScript path reports 0 duplicate groups for tooling reasons, not corpus reasons.
 
-- [ ] **TSD-01** (P1) Structure-hash bucketing destroys recall — `detector.py:390-410` buckets constructs before scoring; on a 245-function corpus it produced 244 buckets / 243 singletons, so only **2** functions were ever compared to anything and at most 1 group could ever be returned. Replace with an LSH-banded key over the existing MinHash signatures (`similarity.py`) or make bucketing opt-in. Needs a recall regression test — current behavior passes any test that only checks for false positives.
-- [ ] **TSD-02** (P1) TypeScript function pattern matches ~1% of functions — `detector.py:221` `function $NAME($$$) { $$$ }` matched 3 functions vs 312 for `kind: function_declaration` on the same corpus; misses typed params and return-type annotations. Drive TS construct discovery from `kind:`-based rules.
-- [ ] **TSD-03** (P1) `function_definition` resolves to `const $NAME = $$$` for JS/TS — `detector.py:219`, hardcoded by `tools.py:53` and `analysis_orchestrator.py:142`. Matches all 1431 consts, hits the 1000 cap (`detector.py:283-285`) on one-liners, then `min_lines` discards them; real function declarations and methods are never scanned via the public tools. Reported `total_constructs: 1000` is the cap, not a count.
-- [ ] **TSD-04** (P2) `method_definition` pattern is unparseable and raises — `detector.py:222` `$NAME($$$) { $$$ }` fails ast-grep with exit 8 ("Multiple AST nodes are detected"), surfacing as `AstGrepExecutionError` rather than a degraded result. Class methods are unreachable for TypeScript. Needs `kind: method_definition`.
-- [ ] **TSD-05** (P3) Detector logs `language=python` when constructed for TypeScript — `analyze_deduplication_candidates(language='typescript')` emits `detector_initialized language=python`. Confirm no Python detector is being used for TS scoring; misleading during language-specific debugging.
-- [ ] **TSD-06** (P2) Add a TypeScript recall fixture and per-`(language, construct_type)` pattern validation test — every defect above survives the current suite because nothing asserts non-zero TS recall, and TSD-02/TSD-04 are both patterns that a trivial parse-check would have caught.
+- [x] **TSD-01** (P1) **Fixed 2026-07-28** — replaced structure-hash bucketing with LSH-banded MinHash candidate retrieval in `group_duplicates` (`detector.py`).
+- [x] **TSD-02** (P1) **Fixed 2026-07-28** — TS/JS construct discovery now uses `kind:`-based YAML rules via `_get_construct_yaml_rule` (`detector.py`).
+- [x] **TSD-03** (P1) **Fixed 2026-07-28** — `function_definition` no longer resolves to `const $NAME = $$$` for JS/TS; kind-based rules used instead.
+- [x] **TSD-04** (P2) **Fixed 2026-07-28** — `method_definition` now uses `kind: method_definition` in `_JS_TS_KIND_MAP` instead of the unparseable source pattern.
+- [x] **TSD-05** (P3) **Fixed 2026-07-28** — orchestrator recreates `DuplicationDetector(language=config.language)` before analysis so `detector_initialized` log entry is accurate.
+- [x] **TSD-06** (P2) **Fixed 2026-07-28** — `tests/unit/test_ts_dedup_recall.py` (52 tests) covers non-zero TS recall, construct YAML rule validity per `(language, construct_type)`, and injected-scorer verification (TSD-07 regression gate).
 
 ### Follow-ups from the TSD-01 fix (verified 2026-07-28, post-merge)
 
