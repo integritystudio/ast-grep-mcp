@@ -31,3 +31,27 @@ def test_violation_without_fix_is_skipped(tmp_path, rule_id: str) -> None:
     assert result.fix_type == "skipped"
     assert result.file_modified is False
     assert path.read_text() == SOURCE
+
+
+def test_builtin_prose_fix_is_never_written(tmp_path) -> None:
+    # Go has no syntax validator, so prose used to be written and reported as a successful fix
+    path = tmp_path / "wait.go"
+    source = "func wait() int {\n\treturn 86400\n}\n"
+    path.write_text(source)
+    violation = RuleViolation(
+        file=str(path),
+        line=2,
+        column=9,
+        end_line=2,
+        end_column=14,
+        severity="warning",
+        rule_id="no-magic-numbers",
+        message="magic number",
+        code_snippet="86400",
+        fix_suggestion="Extract to a named constant (e.g., SECONDS_PER_DAY)",
+    )
+
+    result = _apply_single_fix(str(path), violation, "go")
+
+    assert result.fix_type == "skipped"
+    assert path.read_text() == source

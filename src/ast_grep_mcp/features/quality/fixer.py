@@ -15,6 +15,7 @@ import sentry_sdk
 
 from ast_grep_mcp.constants import ConversionFactors, PatternSuggestionConfidence, SecurityScanDefaults
 from ast_grep_mcp.core.logging import get_logger
+from ast_grep_mcp.features.quality.rules import RULE_TEMPLATES
 from ast_grep_mcp.features.rewrite.backup import create_backup
 from ast_grep_mcp.features.rewrite.service import validate_syntax
 from ast_grep_mcp.models.standards import (
@@ -686,7 +687,9 @@ def _apply_single_fix(file_path: str, violation: RuleViolation, language: str) -
         return apply_removal_fix(file_path, violation, language)
 
     # No known fix: deleting the flagged code (e.g. eval, SQL concat) would silently change behavior.
-    if not violation.fix_suggestion:
+    # Built-in templates' `fix` is advice prose ("Extract to a named constant"), not code; only custom
+    # rules carry fix patterns, so a built-in rule that reaches here has nothing safe to apply.
+    if not violation.fix_suggestion or violation.rule_id in RULE_TEMPLATES:
         logger.debug(f"Skipping {violation.rule_id} at {file_path}:{violation.line}: no fix available")
         return FixResult(
             violation=violation,
