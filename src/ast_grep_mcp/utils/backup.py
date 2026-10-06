@@ -57,6 +57,9 @@ def resolve_backup_dir(prefix: str, timestamp: str, backup_base_dir: Path) -> tu
     return backup_id, backup_dir
 
 
+_EXTERNAL_BACKUP_DIR = "_external"
+
+
 def copy_file_to_backup(
     file_path: str,
     project_folder: str,
@@ -81,6 +84,10 @@ def copy_file_to_backup(
         return None
 
     rel_path = os.path.relpath(file_path, project_folder)
+    if rel_path == os.pardir or rel_path.startswith(os.pardir + os.sep):
+        # Outside the project: "../x" would land outside backup_dir and could overwrite a real file
+        abs_path = Path(os.path.abspath(file_path))
+        rel_path = str(Path(_EXTERNAL_BACKUP_DIR, *abs_path.parts[1:]))
     backup_file_path = backup_dir / rel_path
     backup_file_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(file_path, backup_file_path)

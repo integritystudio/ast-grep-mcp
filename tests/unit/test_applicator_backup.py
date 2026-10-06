@@ -1147,3 +1147,24 @@ class TestCreatedFilesTracking:
 
             assert isinstance(restored, list)
             assert os.path.exists(new_file)
+
+
+class TestCopyFileToBackupContainment:
+    """A file outside the project must still be backed up inside backup_dir."""
+
+    def test_outside_file_stays_inside_backup_dir(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        backup_dir = project / ".backups" / "b1"
+        victim = tmp_path / "victim.txt"
+        outside = tmp_path / "elsewhere" / "victim.txt"
+        project.mkdir()
+        outside.parent.mkdir()
+        victim.write_text("do not overwrite")
+        outside.write_text("outside content")
+
+        entry = copy_file_to_backup(str(outside), str(project), backup_dir)
+
+        assert entry is not None
+        assert Path(entry["backup"]).resolve().is_relative_to(backup_dir.resolve())
+        assert Path(entry["backup"]).read_text() == "outside content"
+        assert victim.read_text() == "do not overwrite"

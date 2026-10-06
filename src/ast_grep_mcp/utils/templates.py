@@ -81,29 +81,27 @@ def _try_google_java_format(code: str) -> Optional[str]:
     if not shutil.which("google-java-format"):
         return None
 
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".java", delete=False) as f:
-            f.write(code)
-            temp_path = f.name
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".java", delete=False) as f:
+        f.write(code)
+        temp_path = f.name
 
+    try:
         result = subprocess.run(
             ["google-java-format", temp_path],
             capture_output=True,
             text=True,
             timeout=SubprocessDefaults.AST_GREP_TIMEOUT_SECONDS,
         )
-
-        # Clean up temp file
+        if result.returncode == 0:
+            return result.stdout
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+        pass
+    finally:
+        # Also on timeout, which previously skipped cleanup
         try:
             os.unlink(temp_path)
         except OSError:
             pass
-
-        if result.returncode == 0:
-            return result.stdout
-
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-        pass
 
     return None
 

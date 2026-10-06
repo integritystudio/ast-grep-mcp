@@ -152,7 +152,7 @@ def count_pattern_matches(code: str, pattern: str, language: str) -> int:
     """
     try:
         result = subprocess.run(
-            ["ast-grep", "run", "--pattern", pattern, "--lang", language, "--json"],
+            ["ast-grep", "run", "--pattern", pattern, "--lang", language, "--json", "--stdin"],
             input=code,
             capture_output=True,
             text=True,

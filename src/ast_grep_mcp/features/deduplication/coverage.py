@@ -321,6 +321,8 @@ class CoverageDetector:
 
         # Get the module/class name from source file
         source_name = os.path.splitext(os.path.basename(source_file_path))[0]
+        # File names may contain regex metacharacters (e.g. "util(1).py")
+        name_pattern = regex_module.escape(source_name)
         lang = language.lower()
 
         # Special case: Go files in same directory have automatic access
@@ -328,17 +330,17 @@ class CoverageDetector:
             if self._check_go_same_directory(test_file_path, source_file_path):
                 return True
             # Check for package import
-            if regex_module.search(f"import.*{source_name}", content, regex_module.IGNORECASE):
+            if regex_module.search(f"import.*{name_pattern}", content, regex_module.IGNORECASE):
                 return True
 
         # Configuration-driven pattern checking
         if lang in IMPORT_PATTERN_CONFIG:
-            patterns = IMPORT_PATTERN_CONFIG[lang](source_name)
+            patterns = IMPORT_PATTERN_CONFIG[lang](name_pattern)
             if self._check_import_patterns(patterns, content):
                 return True
 
-        # Fallback: check if source file name appears anywhere in test
-        if source_name.lower() in content.lower():
+        # Fallback: source file name appears as a whole word anywhere in the test
+        if regex_module.search(rf"\b{name_pattern}\b", content, regex_module.IGNORECASE):
             return True
 
         return False
