@@ -159,3 +159,37 @@ class TestBuildDependencyGraphTwoPass:
         targets = {e.target for e in graph.edges}
         assert "src/a.ts" in targets
         assert "src/b.ts" in targets
+
+
+class TestImportFormsCreateEdges:
+    """Import forms that reference a file must create an edge, or the file looks orphaned."""
+
+    def test_bare_relative_import_of_sibling(self, detector: OrphanDetector, tmp_path: Path) -> None:
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "helpers.py").write_text("X = 1\n")
+        (pkg / "main.py").write_text("from . import helpers\n")
+
+        graph = detector._build_dependency_graph(tmp_path)
+
+        assert graph.get_importers("pkg/helpers.py")
+
+    def test_barrel_reexport_and_dynamic_import(self, detector: OrphanDetector, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.ts").write_text("export const a = 1;")
+        (src / "b.ts").write_text("export const b = 2;")
+        (src / "index.ts").write_text("export { a } from './a';\nconst lazy = () => import('./b');\n")
+
+        graph = detector._build_dependency_graph(tmp_path)
+
+        assert graph.get_importers("src/a.ts")
+        assert graph.get_importers("src/b.ts")
+
+    def test_non_utf8_orphan_does_not_abort(self, detector: OrphanDetector, tmp_path: Path) -> None:
+        (tmp_path / "latin1.py").write_bytes(b"# caf\xe9\nx = 1\n")
+
+        result = detector.analyze(str(tmp_path))
+
+        assert [o.file_path for o in result.orphan_files] == ["latin1.py"]

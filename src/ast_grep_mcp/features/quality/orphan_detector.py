@@ -185,6 +185,7 @@ class OrphanDetector:
     ) -> None:
         """Process an ast.ImportFrom node."""
         if not node.module:
+            self._process_bare_relative_import(node, file_path, rel_path, base_path, graph)
             return
         import_type = "relative" if node.level > 0 else "absolute"
         target = self._resolve_import_from_target(node, file_path, base_path)
@@ -199,6 +200,17 @@ class OrphanDetector:
             )
         elif node.module:
             external_imports.add(node.module.split(".")[0])
+
+    def _process_bare_relative_import(
+        self, node: ast.ImportFrom, file_path: Path, rel_path: str, base_path: Path, graph: DependencyGraph
+    ) -> None:
+        """`from . import sibling` names modules directly; each alias may be a file in the package."""
+        package_dir = self._ascend_dirs(file_path.parent, node.level - 1)
+        for alias in node.names:
+            target = self._resolve_relative_parts([alias.name], package_dir, base_path)
+            if target and target in graph.files:
+                stmt = f"from {'.' * node.level} import {alias.name}"
+                graph.edges.append(DependencyEdge(source=rel_path, target=target, import_type="relative", import_statement=stmt))
 
     def _resolve_import_from_target(self, node: ast.ImportFrom, file_path: Path, base_path: Path) -> Optional[str]:
         """Resolve the target file for an ImportFrom node."""
@@ -274,11 +286,11 @@ class OrphanDetector:
 
         external_imports: Set[str] = set()
 
-        # Match ES6 imports: import X from 'path' or import { X } from 'path'
-        import_pattern = r"import\s+(?:[\w\s{},*]+\s+from\s+)?['\"]([^'\"]+)['\"]"
+        # Match ES6 imports and re-exports: import/export X from 'path', import { X } from 'path'
+        import_pattern = r"(?:import|export)\s+(?:[\w\s{},*]+\s+from\s+)?['\"]([^'\"]+)['\"]"
 
-        # Match require: require('path')
-        require_pattern = r"require\s*\(\s*['\"]([^'\"]+)['\"]\s*\)"
+        # Match require('path') and dynamic import('path')
+        require_pattern = r"(?:require|import)\s*\(\s*['\"]([^'\"]+)['\"]\s*\)"
 
         for pattern in [import_pattern, require_pattern]:
             self._process_js_pattern_matches(pattern, content, file_path, rel_path, base_path, graph, external_imports)
@@ -389,7 +401,8 @@ class OrphanDetector:
     def _make_orphan_file(self, file_path: str, base_path: Path) -> OrphanFile:
         """Construct an OrphanFile record for an un-imported file."""
         full_path = base_path / file_path
-        lines = len(full_path.read_text(encoding="utf-8").split("\n"))
+        # Unparseable files stay in the graph, so a non-UTF-8 one must not abort the run
+        lines = len(full_path.read_text(encoding="utf-8", errors="replace").split("\n"))
         suffix = Path(file_path).suffix
         language = self._LANGUAGE_MAP.get(suffix, "typescript")
         return OrphanFile(
