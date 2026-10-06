@@ -75,7 +75,7 @@ jobs:
         run: uv run pytest tests/quality/ -v --tb=short
 
       - name: Run integration tests
-        run: uv run pytest tests/integration/ -v --tb=short --ignore=tests/integration/test_semantic_integration.py || true
+        run: uv run pytest tests/integration/ -v --tb=short --ignore=tests/integration/test_semantic_integration.py
 
   test-semantic:
     name: Semantic Tests (CodeBERT)
@@ -111,10 +111,10 @@ jobs:
             ${{ runner.os }}-huggingface-
 
       - name: Run semantic unit tests
-        run: uv run pytest tests/unit/test_semantic_similarity.py -v --tb=short -m "semantic or not semantic"
+        run: uv run pytest tests/unit/test_semantic_similarity.py -v --tb=short
 
       - name: Run semantic integration tests
-        run: uv run pytest tests/integration/test_semantic_integration.py -v --tb=short || true
+        run: uv run pytest tests/integration/test_semantic_integration.py -v --tb=short
 
   performance:
     name: Performance Benchmarks
