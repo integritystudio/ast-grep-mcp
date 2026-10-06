@@ -31,6 +31,37 @@ class _DiffCounts:
         }
 
 
+def _collect_run(diff_lines: list[str], start: int, prefix: str) -> tuple[list[str], int]:
+    """Collect a contiguous run of lines starting with ``prefix``; return contents and next index."""
+    run: list[str] = []
+    i = start
+    while i < len(diff_lines) and diff_lines[i].startswith(prefix):
+        run.append(diff_lines[i][1:].rstrip("\n"))
+        i += 1
+    return run, i
+
+
+def _record_paired_changes(
+    counts: _DiffCounts,
+    changes: list[dict[str, Any]],
+    del_lines: list[str],
+    add_lines: list[str],
+) -> None:
+    """Pair deletions with additions 1-to-1 as modifications; record the excess as pure changes."""
+    paired = min(len(del_lines), len(add_lines))
+    for old, new in zip(del_lines[:paired], add_lines[:paired]):
+        counts.modifications += 1
+        changes.append({"type": "modification", "old": old, "new": new})
+
+    for old in del_lines[paired:]:
+        counts.deletions += 1
+        changes.append({"type": "deletion", "content": old})
+
+    for new in add_lines[paired:]:
+        counts.additions += 1
+        changes.append({"type": "addition", "content": new})
+
+
 def _parse_unified_diff_lines(diff_lines: list[str]) -> tuple[_DiffCounts, list[dict[str, Any]]]:
     """Parse unified diff lines into counts and a changes list.
 
@@ -55,34 +86,9 @@ def _parse_unified_diff_lines(diff_lines: list[str]) -> tuple[_DiffCounts, list[
             continue
 
         if line.startswith("-"):
-            # Collect a contiguous run of deletions.
-            del_lines: list[str] = []
-            while i < len(diff_lines) and diff_lines[i].startswith("-"):
-                del_lines.append(diff_lines[i][1:].rstrip("\n"))
-                i += 1
-
-            # Collect the following contiguous run of additions (if any).
-            add_lines: list[str] = []
-            while i < len(diff_lines) and diff_lines[i].startswith("+"):
-                add_lines.append(diff_lines[i][1:].rstrip("\n"))
-                i += 1
-
-            # Pair deletions with additions 1-to-1 as modifications.
-            paired = min(len(del_lines), len(add_lines))
-            for j in range(paired):
-                counts.modifications += 1
-                changes.append({"type": "modification", "old": del_lines[j], "new": add_lines[j]})
-
-            # Any unpaired deletions are pure deletions.
-            for old in del_lines[paired:]:
-                counts.deletions += 1
-                changes.append({"type": "deletion", "content": old})
-
-            # Any unpaired additions are pure additions.
-            for new in add_lines[paired:]:
-                counts.additions += 1
-                changes.append({"type": "addition", "content": new})
-
+            del_lines, i = _collect_run(diff_lines, i, "-")
+            add_lines, i = _collect_run(diff_lines, i, "+")
+            _record_paired_changes(counts, changes, del_lines, add_lines)
         elif line.startswith("+"):
             counts.additions += 1
             changes.append({"type": "addition", "content": line[1:].rstrip("\n")})
