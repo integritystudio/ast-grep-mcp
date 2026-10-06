@@ -4,6 +4,7 @@ This module provides common syntax validation and error suggestion
 functionality used across the deduplication system.
 """
 
+import re
 from typing import List, Optional, Tuple
 
 from ast_grep_mcp.constants import SyntaxValidationDefaults
@@ -69,6 +70,14 @@ def suggest_syntax_fix(error: Optional[str], language: str, context: str = "file
     return f"Review {language} syntax and fix the error: {error[: SyntaxValidationDefaults.ERROR_SUGGESTION_PREVIEW_LENGTH]}"
 
 
+# Comments and string/char/template literals (C-family syntax: JS/TS, Java) whose
+# brackets are text, not structure.
+_LITERAL_OR_COMMENT = re.compile(
+    r"//[^\n]*|/\*.*?\*/|\"(?:\\.|[^\"\\\n])*\"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`",
+    re.DOTALL,
+)
+
+
 def validate_bracket_balance(code: str) -> List[Tuple[str, str]]:
     """Check for balanced brackets, braces, and parentheses.
 
@@ -79,6 +88,7 @@ def validate_bracket_balance(code: str) -> List[Tuple[str, str]]:
         List of (bracket_type, error_message) tuples for unbalanced brackets
     """
     errors = []
+    code = _LITERAL_OR_COMMENT.sub(" ", code)
 
     bracket_pairs = [("{", "}", "braces"), ("(", ")", "parentheses"), ("[", "]", "brackets")]
 
