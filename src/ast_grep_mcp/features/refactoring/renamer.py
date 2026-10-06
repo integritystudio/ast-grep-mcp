@@ -27,6 +27,11 @@ logger = get_logger(__name__)
 
 _JS_VARIABLE_DECL = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)")
 _JS_SCOPE_DECL = re.compile(r"\b(?:function|class)\s+([A-Za-z_$][\w$]*)")
+# BR-03: match individual parameter names in function/method/arrow signatures.
+# Handles typed TS params (``name: Type``, ``name?: Type``, ``name = default``).
+# The param list is extracted via a broader regex in _collect_js_symbols.
+_JS_PARAM_LIST = re.compile(r"(?:function\s*\w*\s*|(?:\w[\w$]*\s*))\(([^)]*)\)")
+_JS_PARAM_NAME = re.compile(r"(?:^|,)\s*(?:\.\.\.)?\s*([A-Za-z_$][\w$]*)(?:\s*[?:=]|$|\s*,)")
 
 
 class SymbolRenamer:
@@ -485,12 +490,25 @@ class SymbolRenamer:
                     self._add_symbol(scopes, bound, node.lineno, declares_scope=False)
 
     def _collect_js_symbols(self, scopes: List[ScopeInfo], lines: List[str]) -> None:
-        """Fill defined_symbols from JS/TS declarations (const/let/var, function, class)."""
+        """Fill defined_symbols from JS/TS declarations (const/let/var, function, class, params).
+
+        BR-03: the original implementation omitted function parameters, so
+        renaming a local variable to match a parameter name in the same
+        function was not flagged as a conflict.  Parameters are now collected
+        from every function/method/arrow signature found in the file.
+        """
         for i, line in enumerate(lines, start=1):
             for match in _JS_VARIABLE_DECL.finditer(line):
                 self._add_symbol(scopes, match.group(1), i, declares_scope=False)
             for match in _JS_SCOPE_DECL.finditer(line):
                 self._add_symbol(scopes, match.group(1), i, declares_scope=True)
+            # Collect parameter names from function/method/arrow signatures.
+            for pl_match in _JS_PARAM_LIST.finditer(line):
+                param_list = pl_match.group(1)
+                for p_match in _JS_PARAM_NAME.finditer(param_list):
+                    param_name = p_match.group(1)
+                    if param_name:
+                        self._add_symbol(scopes, param_name, i, declares_scope=False)
 
     def _find_scope_end(self, lines: List[str], start_line: int, base_indent: int) -> int:
         """Find end of Python scope based on indentation.

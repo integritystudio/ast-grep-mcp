@@ -324,7 +324,20 @@ rule:
         assert result.execution_time < 5.0, "File size filtering too slow"
 
     def test_benchmark_caching_performance(self, benchmark_runner: BenchmarkRunner, benchmark_fixtures: Path) -> None:
-        """Benchmark cache hit performance."""
+        """Benchmark cache hit performance.
+
+        BR-05: the global query cache is torn down by `initialized_cache`
+        fixture teardown in the unit/quality suites, so this test fails when
+        run together with them.  Reinitialise here so the test is order-
+        independent.
+        """
+        # Ensure a live cache exists for this test regardless of prior teardowns.
+        core_config.CACHE_ENABLED = True
+        if core_cache._query_cache is None:
+            core_cache.init_query_cache(max_size=100, ttl_seconds=300)
+        else:
+            core_cache._query_cache.cache.clear()
+
         tool = mcp.tools["find_code"]  # type: ignore
 
         # First run (cache miss)

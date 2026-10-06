@@ -31,41 +31,65 @@ class _DiffCounts:
         }
 
 
-def _classify_diff_line(diff_lines: list[str], i: int, counts: _DiffCounts, changes: list[dict[str, Any]]) -> int:
-    """Classify a single diff line and update counts/changes. Returns next index."""
-    line = diff_lines[i]
-
-    if line.startswith(("---", "+++", "@@")):
-        return i + 1
-
-    if line.startswith("-"):
-        # Check if next line is an addition (modification pair)
-        if i + 1 < len(diff_lines) and diff_lines[i + 1].startswith("+"):
-            counts.modifications += 1
-            changes.append(
-                {
-                    "type": "modification",
-                    "old": line[1:].rstrip("\n"),
-                    "new": diff_lines[i + 1][1:].rstrip("\n"),
-                }
-            )
-            return i + 2
-        counts.deletions += 1
-        changes.append({"type": "deletion", "content": line[1:].rstrip("\n")})
-    elif line.startswith("+"):
-        counts.additions += 1
-        changes.append({"type": "addition", "content": line[1:].rstrip("\n")})
-
-    return i + 1
-
-
 def _parse_unified_diff_lines(diff_lines: list[str]) -> tuple[_DiffCounts, list[dict[str, Any]]]:
-    """Parse unified diff lines into counts and a changes list."""
+    """Parse unified diff lines into counts and a changes list.
+
+    BUGL-03: unified diffs emit all ``-`` lines then all ``+`` lines within a
+    hunk, so a 2-line replacement looks like ``[-a, -b, +c, +d]`` — the naïve
+    approach of pairing each ``-`` with the immediately-following ``+`` missed
+    the multi-line case and miscounted modifications/deletions/additions.
+
+    This implementation collects a complete run of deletions, then the
+    following run of additions, and pairs them 1-to-1 as modifications, with
+    any excess lines counted as pure deletions or additions.
+    """
     counts = _DiffCounts()
     changes: list[dict[str, Any]] = []
     i = 0
+
     while i < len(diff_lines):
-        i = _classify_diff_line(diff_lines, i, counts, changes)
+        line = diff_lines[i]
+
+        if line.startswith(("---", "+++", "@@")):
+            i += 1
+            continue
+
+        if line.startswith("-"):
+            # Collect a contiguous run of deletions.
+            del_lines: list[str] = []
+            while i < len(diff_lines) and diff_lines[i].startswith("-"):
+                del_lines.append(diff_lines[i][1:].rstrip("\n"))
+                i += 1
+
+            # Collect the following contiguous run of additions (if any).
+            add_lines: list[str] = []
+            while i < len(diff_lines) and diff_lines[i].startswith("+"):
+                add_lines.append(diff_lines[i][1:].rstrip("\n"))
+                i += 1
+
+            # Pair deletions with additions 1-to-1 as modifications.
+            paired = min(len(del_lines), len(add_lines))
+            for j in range(paired):
+                counts.modifications += 1
+                changes.append({"type": "modification", "old": del_lines[j], "new": add_lines[j]})
+
+            # Any unpaired deletions are pure deletions.
+            for old in del_lines[paired:]:
+                counts.deletions += 1
+                changes.append({"type": "deletion", "content": old})
+
+            # Any unpaired additions are pure additions.
+            for new in add_lines[paired:]:
+                counts.additions += 1
+                changes.append({"type": "addition", "content": new})
+
+        elif line.startswith("+"):
+            counts.additions += 1
+            changes.append({"type": "addition", "content": line[1:].rstrip("\n")})
+            i += 1
+        else:
+            i += 1
+
     return counts, changes
 
 

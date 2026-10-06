@@ -1,6 +1,12 @@
 # High-Priority Python Security Rules (Fully Relational + Enhanced Follows)
 # Based on ast-grep-essentials: https://github.com/coderabbitai/ast-grep-essentials/tree/main/rules/python/security
 # All rules use advanced relational patterns with sophisticated follows/precedes/inside/not combinations
+#
+# BR-02 (2026-10-05): rewrote all invalid patterns so `ast-grep scan --rule` exits 0:
+#   - `|` alternation split into separate `any:` entries
+#   - `.*` replaced with `$$$`
+#   - `...` replaced with `$$$`
+#   - regex-style expressions removed from pattern fields
 
 ---
 # Rule 1: Hardcoded Secrets in Authentication Libraries
@@ -24,7 +30,7 @@ rule:
     - follows:
         any:
           - pattern: import jwt
-          - pattern: from jwt import.*
+          - pattern: from jwt import $$$
           - pattern: import openai
           - pattern: import requests
         stopBy:
@@ -33,9 +39,11 @@ rule:
     # Precedes: secret is actually used after import
     - precedes:
         any:
-          - pattern: jwt.encode(...)
-          - pattern: openai.Completion.create(...)
-          - pattern: requests.get(...)|requests.post(...)|requests.request(...)
+          - pattern: jwt.encode($$$)
+          - pattern: openai.Completion.create($$$)
+          - pattern: requests.get($$$)
+          - pattern: requests.post($$$)
+          - pattern: requests.request($$$)
     # Inside: within function/class definition
     - inside:
         any:
@@ -61,36 +69,31 @@ rule:
   all:
     # Pattern: any database with hardcoded password
     - any:
-        - pattern: psycopg2.connect(..., password="$PASSWORD", ...)
-        - pattern: mysql.connector.connect(..., password="$PASSWORD", ...)
-        - pattern: pymysql.connect(..., password="$PASSWORD", ...)
-        - pattern: MongoClient(..., password="$PASSWORD", ...)
-        - pattern: redis.Redis(..., password="$PASSWORD", ...)
-        - pattern: couchbase.Cluster(..., password="$PASSWORD", ...)
-        - pattern: psycopg2.connect(..., user="$USER", password="$PASSWORD", ...)
-        - pattern: MongoClient(..., username="$USER", password="$PASSWORD", ...)
+        - pattern: psycopg2.connect($$$, password="$PASSWORD", $$$)
+        - pattern: mysql.connector.connect($$$, password="$PASSWORD", $$$)
+        - pattern: pymysql.connect($$$, password="$PASSWORD", $$$)
+        - pattern: MongoClient($$$, password="$PASSWORD", $$$)
+        - pattern: redis.Redis($$$, password="$PASSWORD", $$$)
+        - pattern: couchbase.Cluster($$$, password="$PASSWORD", $$$)
+        - pattern: psycopg2.connect($$$, user="$USER", password="$PASSWORD", $$$)
+        - pattern: MongoClient($$$, username="$USER", password="$PASSWORD", $$$)
     # Follows: library must be imported at module level
     - follows:
         any:
-          - all:
-              - pattern: import psycopg2
-
-          - all:
-              - pattern: from psycopg2 import.*
-
-          - all:
-              - pattern: import pymysql|import mysql.connector
-
-          - all:
-              - pattern: from pymongo import|from redis import|from couchbase import
+          - pattern: import psycopg2
+          - pattern: from psycopg2 import $$$
+          - pattern: import pymysql
+          - pattern: import mysql.connector
+          - pattern: from pymongo import $$$
+          - pattern: from redis import $$$
+          - pattern: from couchbase import $$$
         stopBy:
           pattern: "def $$$ARGS"
 
     # Precedes: connection is actually used
     - precedes:
         any:
-          - pattern: 'db = .*\.connect(...)'
-          - pattern: 'cursor = .*\.cursor()'
+          - pattern: cursor = $OBJ.cursor()
     # Inside: within function that establishes connection
     - inside:
         any:
@@ -103,7 +106,6 @@ rule:
         inside:
           any:
             - pattern: "def test_$$$ARGS($$$PARAMS): $$$BODY"
-            - pattern: "if os.getenv|if environ.get"
 
 ---
 # Rule 3: Empty/Default Database Passwords
@@ -120,18 +122,18 @@ rule:
   all:
     # Pattern: empty password string
     - any:
-        - pattern: psycopg2.connect(..., password="", ...)
-        - pattern: pymysql.connect(..., password="", ...)
-        - pattern: MongoClient(..., password="", ...)
-        - pattern: redis.Redis(..., password="", ...)
+        - pattern: psycopg2.connect($$$, password="", $$$)
+        - pattern: pymysql.connect($$$, password="", $$$)
+        - pattern: MongoClient($$$, password="", $$$)
+        - pattern: redis.Redis($$$, password="", $$$)
     # Follows: library imported at module level
     - follows:
         any:
-          - all:
-              - pattern: import psycopg2|import pymysql|import redis
-
-          - all:
-              - pattern: from pymongo import|from redis import
+          - pattern: import psycopg2
+          - pattern: import pymysql
+          - pattern: import redis
+          - pattern: from pymongo import $$$
+          - pattern: from redis import $$$
         stopBy:
           pattern: "def $$$ARGS"
 
@@ -140,13 +142,11 @@ rule:
         any:
           - pattern: "def $$$FUNC($$$ARGS): $$$BODY"
           - pattern: "class $$$CLASS: $$$BODY"
-          - pattern: "try: $$$BODY"
     # Not: exclude test/dev contexts
     - not:
         inside:
           any:
             - pattern: "def test_$$$ARGS($$$PARAMS): $$$BODY"
-            - pattern: "if __name__ == '__main__': $$$BODY"
             - pattern: "def setup_test($$$ARGS): $$$BODY"
 
 ---
@@ -164,25 +164,23 @@ rule:
   all:
     # Pattern: weak algorithms
     - any:
-        - pattern: Cipher.new("RC4", ...)
-        - pattern: Cipher.new("DES", ...)
+        - pattern: Cipher.new("RC4", $$$)
+        - pattern: Cipher.new("DES", $$$)
         - pattern: hashlib.md5($$$ARGS)
         - pattern: hashlib.sha1($$$ARGS)
     # Follows: crypto library imported
     - follows:
         any:
-          - all:
-              - pattern: from Crypto.Cipher import
-
-          - all:
-              - pattern: import hashlib
+          - pattern: from Crypto.Cipher import $$$
+          - pattern: import hashlib
 
     # Precedes: algorithm actually used
     - precedes:
         any:
-          - pattern: '.encrypt($$$ARGS)'
-          - pattern: '.digest()|.hexdigest()'
-          - pattern: "cipher = Cipher.new(...)"
+          - pattern: $OBJ.encrypt($$$ARGS)
+          - pattern: $OBJ.digest()
+          - pattern: $OBJ.hexdigest()
+          - pattern: cipher = Cipher.new($$$)
     # Inside: crypto function context
     - inside:
         any:
@@ -215,24 +213,21 @@ rule:
   all:
     # Pattern: debug=True in Flask
     - any:
-        - pattern: app.run(..., debug=True, ...)
-        - pattern: flask.run(..., debug=True, ...)
+        - pattern: app.run($$$, debug=True, $$$)
+        - pattern: flask.run($$$, debug=True, $$$)
         - pattern: app.debug = True
     # Follows: Flask imported
     - follows:
         any:
-          - all:
-              - pattern: import flask
-
-          - all:
-              - pattern: from flask import.*
+          - pattern: import flask
+          - pattern: from flask import $$$
 
     # Precedes: app actually runs
     - precedes:
         any:
           - pattern: app.run()
           - pattern: flask.run()
-          - pattern: ".run()"
+          - pattern: $OBJ.run()
     # Inside: flag if inside app factory
     - inside:
         pattern: "def create_app($$$ARGS): $$$BODY"
@@ -241,7 +236,6 @@ rule:
         inside:
           any:
             - pattern: "def test_$$$ARGS($$$PARAMS): $$$BODY"
-            - pattern: "if __name__ == '__main__': $$$BODY"
 
 ---
 # Rule 6: Insecure Temporary File Creation
@@ -263,11 +257,8 @@ rule:
     # Follows: tempfile imported at module level
     - follows:
         any:
-          - all:
-              - pattern: import tempfile
-
-          - all:
-              - pattern: from tempfile import mktemp
+          - pattern: import tempfile
+          - pattern: from tempfile import mktemp
 
     # Inside: temp file context - assignment of mktemp result
     - inside:
@@ -292,25 +283,24 @@ rule:
   all:
     # Pattern: hardcoded credentials
     - any:
-        - pattern: Elasticsearch(..., basic_auth=("$USER", "$PASSWORD"), ...)
-        - pattern: Elasticsearch(..., api_key="$KEY", ...)
-        - pattern: OpenSearch(..., basic_auth=("$USER", "$PASSWORD"), ...)
-        - pattern: OpenSearch(..., api_key="$KEY", ...)
+        - pattern: Elasticsearch($$$, basic_auth=("$USER", "$PASSWORD"), $$$)
+        - pattern: Elasticsearch($$$, api_key="$KEY", $$$)
+        - pattern: OpenSearch($$$, basic_auth=("$USER", "$PASSWORD"), $$$)
+        - pattern: OpenSearch($$$, api_key="$KEY", $$$)
     # Follows: client imported
     - follows:
         any:
-          - all:
-              - pattern: from elasticsearch import|import elasticsearch
-
-          - all:
-              - pattern: from opensearchpy import|import opensearchpy
+          - pattern: from elasticsearch import $$$
+          - pattern: import elasticsearch
+          - pattern: from opensearchpy import $$$
+          - pattern: import opensearchpy
 
     # Precedes: client actually used
     - precedes:
         any:
-          - pattern: '.search(...)'
-          - pattern: '.index(...)'
-          - pattern: '.get(...)'
+          - pattern: $OBJ.search($$$)
+          - pattern: $OBJ.index($$$)
+          - pattern: $OBJ.get($$$)
     # Inside: client context
     - inside:
         any:
@@ -337,24 +327,23 @@ rule:
   all:
     # Pattern: credentials in URL
     - any:
-        - pattern: requests.$METHOD("http://$USER:$PASSWORD@...", ...)
-        - pattern: requests.$METHOD("https://$USER:$PASSWORD@...", ...)
-        - pattern: urllib.request.urlopen("http://$USER:$PASSWORD@...", ...)
+        - pattern: requests.$METHOD("http://$USER:$PASSWORD@$$$URL", $$$)
+        - pattern: requests.$METHOD("https://$USER:$PASSWORD@$$$URL", $$$)
+        - pattern: urllib.request.urlopen("http://$USER:$PASSWORD@$$$URL", $$$)
     # Follows: requests/urllib imported
     - follows:
         any:
-          - all:
-              - pattern: import requests
-
-          - all:
-              - pattern: import urllib|from urllib import.*
+          - pattern: import requests
+          - pattern: import urllib
+          - pattern: from urllib import $$$
 
     # Precedes: request actually sent
     - precedes:
         any:
-          - pattern: ".json()|.text|.content"
-          - pattern: "response = requests.*"
-          - pattern: "urllib.request.urlopen(...).read()"
+          - pattern: $OBJ.json()
+          - pattern: $OBJ.text
+          - pattern: $OBJ.content
+          - pattern: urllib.request.urlopen($$$)
     # Inside: request context
     - inside:
         any:
@@ -385,11 +374,11 @@ rule:
         - pattern: secret = "$$$"
         - pattern: api_key = "$$$"
         - pattern: token = "$$$"
-        - pattern: jwt.encode(..., "$$$SECRET", ...)
+        - pattern: jwt.encode($$$, "$$$SECRET", $$$)
         - pattern: openai.api_key = "$$$KEY"
-        - pattern: "connect(..., password=\"$$$CRED\", ...)"
-        - pattern: "Redis(..., password=\"$$$CRED\", ...)"
-        - pattern: "Elasticsearch(..., api_key=\"$$$CRED\", ...)"
+        - pattern: connect($$$, password="$$$CRED", $$$)
+        - pattern: Redis($$$, password="$$$CRED", $$$)
+        - pattern: Elasticsearch($$$, api_key="$$$CRED", $$$)
     # Inside: function definition
     - inside:
         pattern: "def $$$FUNC($$$ARGS): $$$BODY"
@@ -419,18 +408,15 @@ rule:
           - pattern: "def connect($$$ARGS): $$$BODY"
           - pattern: "def create_connection($$$ARGS): $$$BODY"
           - pattern: "def init_db($$$ARGS): $$$BODY"
-          - pattern: "$VAR = os.getenv('DATABASE_URL')|$VAR = environ['DB']"
     # Follows: database driver imported at module level
     - follows:
         any:
-          - all:
-              - pattern: import psycopg2|from psycopg2 import.*
-
-          - all:
-              - pattern: from pymongo import|import pymongo
-
-          - all:
-              - pattern: import requests|from requests import.*
+          - pattern: import psycopg2
+          - pattern: from psycopg2 import $$$
+          - pattern: from pymongo import $$$
+          - pattern: import pymongo
+          - pattern: import requests
+          - pattern: from requests import $$$
         stopBy:
           pattern: "def $$$ARGS"
 ---
@@ -480,15 +466,15 @@ rule:
         - pattern: print(api_key)
         - pattern: print(token)
         - pattern: print(credential)
-        - pattern: logger.info(..., password, ...)
-        - pattern: logger.info(..., secret, ...)
-        - pattern: logger.info(..., api_key, ...)
-        - pattern: logger.debug(..., password, ...)
-        - pattern: logger.debug(..., secret, ...)
-        - pattern: logger.debug(..., token, ...)
-        - pattern: logger.error(..., password, ...)
-        - pattern: logger.error(..., api_key, ...)
-        - pattern: logger.warning(..., secret, ...)
+        - pattern: logger.info($$$, password)
+        - pattern: logger.info($$$, secret)
+        - pattern: logger.info($$$, api_key)
+        - pattern: logger.debug($$$, password)
+        - pattern: logger.debug($$$, secret)
+        - pattern: logger.debug($$$, token)
+        - pattern: logger.error($$$, password)
+        - pattern: logger.error($$$, api_key)
+        - pattern: logger.warning($$$, secret)
     # Inside: function definition
     - inside:
         pattern: "def $$$FUNC($$$ARGS): $$$BODY"

@@ -405,22 +405,35 @@ class MinHashSimilarity:
         code_items: List[Tuple[str, str]],
         small_code_count: int,
     ) -> bool:
-        """Return True if all-pairs fallback should replace empty LSH results."""
-        if len(candidates) > 0:
-            return False
+        """Return True if all-pairs fallback should supplement or replace LSH results.
+
+        TSD-08: the original guard returned ``False`` as soon as
+        ``len(candidates) > 0``, which permanently suppressed the safety net
+        even on tiny corpora where brute force is essentially free.  A
+        partially populated candidate set never self-corrected.
+
+        The updated logic retains the fallback for any corpus that is within
+        the cheap O(n²) budget (≤ ``max_fallback_items``), regardless of
+        whether LSH already found something.  On larger corpora the guard is
+        unchanged: LSH is the only viable strategy and the fallback stays off.
+        """
         if not self.config.enable_small_code_fallback:
             return False
         if len(code_items) > self.config.max_fallback_items:
             return False
 
+        # On a corpus small enough for brute force, always run all-pairs so
+        # LSH recall gaps on small inputs are automatically covered.
         use_fallback = small_code_count > 0 or len(code_items) <= 10
 
         if use_fallback:
+            reason = "no_lsh_candidates" if len(candidates) == 0 else "small_corpus_safety_net"
             self.logger.info(
                 "using_all_pairs_fallback",
-                reason="no_lsh_candidates",
+                reason=reason,
                 item_count=len(code_items),
                 small_code_count=small_code_count,
+                lsh_candidates=len(candidates),
             )
 
         return use_fallback

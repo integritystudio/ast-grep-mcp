@@ -707,14 +707,17 @@ class DuplicationDetector:
 
     def _build_suggestion(self, idx: int, group: List[Dict[str, Any]], construct_type: str) -> Dict[str, Any]:
         """Build a single refactoring suggestion for a duplication group."""
-        lines = self._code_line_count(group[0].get("text", ""))
-        total_lines = sum(self._code_line_count(item.get("text", "")) for item in group)
+        all_line_counts = [self._code_line_count(item.get("text", "")) for item in group]
+        total_lines = sum(all_line_counts)
+        # BUGL-01: use min length as the "keep one" baseline so savings are
+        # correct when similar (but not identical) instances differ in length.
+        min_lines = min(all_line_counts) if all_line_counts else 0
         return {
             "group_id": idx + 1,
             "duplicate_count": len(group),
-            "lines_per_duplicate": lines,
+            "lines_per_duplicate": min_lines,
             "total_duplicated_lines": total_lines,
-            "potential_line_savings": total_lines - lines,
+            "potential_line_savings": total_lines - min_lines,
             "refactoring_strategy": self._determine_refactoring_strategy(group, construct_type),
             "locations": self._group_locations(group),
         }
@@ -814,8 +817,10 @@ class DuplicationDetector:
             else 1.0
         )
         files = list(dict.fromkeys(item.get("file", "") for item in group if item.get("file", "")))
-        lines = self._code_line_count(group[0].get("text", "")) if group else 0
-        potential_line_savings = lines * (len(group) - 1) if len(group) >= 2 else 0
+        # BUGL-01: groups hold *similar* (not identical) code; use the sum of
+        # all instance lengths minus the shortest to get the correct savings.
+        all_line_counts = [self._code_line_count(item.get("text", "")) for item in group] if group else [0]
+        potential_line_savings = sum(all_line_counts) - min(all_line_counts) if len(group) >= 2 else 0
         return {
             "group_id": idx + 1,
             "similarity_score": similarity,

@@ -159,15 +159,28 @@ class ImpactAnalyzer:
 
         return result
 
-    def _parse_files_from_locations(self, locations: List[str]) -> List[str]:
-        """Extract unique file paths from location strings."""
+    def _parse_files_from_locations(self, locations: List[Any]) -> List[str]:
+        """Extract unique absolute file paths from location entries.
+
+        BUGL-08: locations from the detector are dicts ``{"file": ..., "line":
+        ...}``, not ``"file:line"`` strings, so the old ``":" in loc`` guard
+        silently discarded every entry and ``files_in_group`` was always empty.
+        The function now handles both formats and absolutises relative paths so
+        they match the absolute paths produced by ``_to_call_site_record``.
+        """
         files: List[str] = []
         for loc in locations:
-            if ":" not in loc:
+            if isinstance(loc, dict):
+                file_path = loc.get("file", "")
+            elif isinstance(loc, str) and ":" in loc:
+                file_path = loc.split(":")[0]
+            else:
                 continue
-            file_path = loc.split(":")[0]
-            if file_path not in files:
-                files.append(file_path)
+            if not file_path:
+                continue
+            abs_path = os.path.abspath(file_path)
+            if abs_path not in files:
+                files.append(abs_path)
         return files
 
     def _find_all_external_refs(

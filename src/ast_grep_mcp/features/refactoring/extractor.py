@@ -469,6 +469,36 @@ class FunctionExtractor:
 
         return "\n".join(lines)
 
+    def _needs_typing_any(self, function_body: str) -> bool:
+        """Return True when the generated Python signature references ``Any``."""
+        return "Any" in function_body
+
+    @staticmethod
+    def _has_typing_any(lines: List[str]) -> bool:
+        """Return True when the file already imports ``Any`` from ``typing``."""
+        import re
+
+        _TYPING_ANY_RE = re.compile(r"^\s*from\s+typing\s+import\b.*\bAny\b")
+        return any(_TYPING_ANY_RE.search(line) for line in lines)
+
+    def _inject_typing_any(self, lines: List[str]) -> List[str]:
+        """Insert ``from typing import Any`` after the last import, or at line 1."""
+        last_import_line, _ = self._scan_imports(lines)
+        insert_at = last_import_line  # 0-indexed: insert after this line
+        new_line = "from typing import Any\n"
+
+        # Extend an existing ``from typing import …`` line when possible so we
+        # do not create a duplicate import statement.
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("from typing import") and "Any" not in stripped:
+                names_part = stripped[len("from typing import") :].strip()
+                lines[i] = f"from typing import Any, {names_part}\n"
+                return lines
+
+        lines.insert(insert_at, new_line)
+        return lines
+
     def _apply_extraction(
         self,
         selection: CodeSelection,
@@ -488,6 +518,17 @@ class FunctionExtractor:
 
         try:
             lines = read_file_lines(selection.file_path)
+
+            # BR-04: ensure `from typing import Any` is present when the
+            # extracted Python signature references `Any` (e.g. multi-value
+            # returns emit `-> tuple[Any, Any]`).
+            if self.language == "python" and self._needs_typing_any(function_body) and not self._has_typing_any(lines):
+                lines = self._inject_typing_any(lines)
+                # Recalculate insertion_line — the injected import shifts every
+                # line that follows it down by one.
+                last_import_line, _ = self._scan_imports(lines)
+                if insertion_line > last_import_line:
+                    insertion_line += 1
 
             function_lines = [line + "\n" for line in function_body.split("\n")]
             function_lines.append("\n\n")

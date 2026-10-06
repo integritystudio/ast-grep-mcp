@@ -291,7 +291,9 @@ class TestScopeTreeSymbols:
         scopes = typescript_renamer.build_scope_tree(str(test_file))
         by_name = {s.scope_name: s.defined_symbols for s in scopes}
         assert by_name["<module>"] == {"total", "sum"}
-        assert by_name["sum"] == {"acc"}
+        # BR-03: parameters are now collected alongside local declarations so
+        # that renaming a local to a param name in the same function is flagged.
+        assert by_name["sum"] == {"acc", "a"}
 
 
 class TestRenameCoordinator:
