@@ -405,7 +405,7 @@ class CodeGenerator:
             # Look for common patterns like self.x, module.function, etc.
             patterns = [
                 r"\bself\.(\w+)",  # Class attributes
-                r"(?<!\.)(\w+)\(",  # Function calls (not methods)
+                r"(?<![\w.])(\w+)\(",  # Function calls (not methods or name tails)
             ]
             for pattern in patterns:
                 matches = re.findall(pattern, code)

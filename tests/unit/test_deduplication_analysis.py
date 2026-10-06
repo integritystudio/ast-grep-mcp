@@ -31,6 +31,7 @@ from ast_grep_mcp.features.deduplication.analyzer import (
 
 # Type inference and parameter functions migrated to modular architecture
 from ast_grep_mcp.features.deduplication.generator import (
+    CodeGenerator,
     _infer_from_identifier_name,
     _infer_single_value_type,
     generate_parameter_name,
@@ -219,6 +220,24 @@ class TestAstGrepScans:
         nested = PatternAnalyzer().detect_nested_function_call(self.SAMPLES[language], "x", language)
         assert nested is not None
         assert nested["nesting_depth"] == 2
+
+
+class TestConditionalOperatorParsing:
+    """Word operators must match whole words, and multi-word operators before their prefixes."""
+
+    def test_identifier_containing_in_is_kept_whole(self) -> None:
+        assert PatternAnalyzer()._extract_cond_vars("index > 5") == {"index"}
+
+    def test_in_vs_not_in_is_an_operator_change(self) -> None:
+        details = PatternAnalyzer()._analyze_conditional_difference("x in y", "x not in y", "python")
+        assert details["operators"] == {"from": "in", "to": "not in"}
+
+
+class TestExternalDependencies:
+    def test_method_name_tails_are_not_dependencies(self) -> None:
+        deps = CodeGenerator("python")._find_external_dependencies("self.helper(x)\nos.path.join(a)\nvalidate(x)\n")
+        assert "elper" not in deps and "oin" not in deps
+        assert "validate" in deps
 
 
 def _fake_extract_literals(code: str, literal_type: str, language: str) -> List[Dict[str, Any]]:

@@ -8,6 +8,7 @@ identifying variations, and classifying differences between duplicate code block
 import functools
 import json
 import os
+import re
 import subprocess
 import tempfile
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -903,17 +904,16 @@ class PatternAnalyzer:
             "inner_function": m.group(RegexCaptureGroups.SECOND),
         }
 
-    _COMPARISON_OPERATORS = (">=", "<=", "!=", "==", ">", "<", "in", "not in", "is not", "is")
+    # Multi-word operators first; word operators need boundaries so "index" is not "in"
+    _COMPARISON_OPERATOR_RE = re.compile(r"\bnot\s+in\b|\bis\s+not\b|\bin\b|\bis\b|>=|<=|!=|==|>|<")
     _COND_KEYWORD_EXCLUSIONS = frozenset({"if", "elif", "else"})
 
     def _find_operator(self, cond: str) -> Optional[str]:
-        return next((op for op in self._COMPARISON_OPERATORS if op in cond), None)
+        match = self._COMPARISON_OPERATOR_RE.search(cond)
+        return " ".join(match.group(0).split()) if match else None
 
     def _extract_cond_vars(self, cond: str) -> set[str]:
-        import re
-
-        for op in self._COMPARISON_OPERATORS:
-            cond = cond.replace(op, " ")
+        cond = self._COMPARISON_OPERATOR_RE.sub(" ", cond)
         return set(re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]*\b", cond)) - self._COND_KEYWORD_EXCLUSIONS
 
     def _analyze_conditional_difference(self, cond1: str, cond2: str, language: str) -> Dict[str, Any]:
