@@ -6,6 +6,7 @@ and other text processing operations.
 
 import difflib
 import os
+import shutil
 import tempfile
 from typing import Union
 
@@ -160,6 +161,9 @@ def write_file_lines(file_path: FilePath, lines: list[str]) -> None:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.writelines(lines)
+            # mkstemp creates 0600; keep the original file's mode (e.g. exec bit, group read)
+            if os.path.exists(target):
+                shutil.copymode(target, tmp_path)
             os.replace(tmp_path, target)
         except BaseException:
             os.unlink(tmp_path)
