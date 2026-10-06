@@ -31,14 +31,34 @@ logger = get_logger(__name__)
 # =============================================================================
 
 
+def _indent_width(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _google_args_section(lines: List[str]) -> List[str]:
+    """Lines of the Args: section, ending at the first line indented no deeper than the header."""
+    for i, line in enumerate(lines):
+        if line.strip() == "Args:":
+            header_indent = _indent_width(line)
+            section: List[str] = []
+            for body_line in lines[i + 1 :]:
+                if body_line.strip() and _indent_width(body_line) <= header_indent:
+                    break
+                section.append(body_line)
+            return section
+    return []
+
+
 def _extract_google_style_params(docstring: str) -> List[str]:
-    args_match = re.search(r"Args:\s*\n((?:\s+\w+.*\n?)+)", docstring)
-    if not args_match:
+    entries = [line for line in _google_args_section(docstring.split("\n")) if line.strip()]
+    if not entries:
         return []
+    # Only the first indent level holds parameter names; deeper lines are wrapped descriptions
+    param_indent = _indent_width(entries[0])
     return [
         m.group(RegexCaptureGroups.FIRST)
-        for line in args_match.group(RegexCaptureGroups.FIRST).split("\n")
-        if (m := re.match(r"\s+(\w+)(?:\s*\(|\s*:)", line))
+        for line in entries
+        if _indent_width(line) == param_indent and (m := re.match(r"\s*\*{0,2}(\w+)(?:\s*\(|\s*:)", line))
     ]
 
 

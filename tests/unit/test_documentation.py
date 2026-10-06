@@ -819,6 +819,29 @@ Returns:
         assert "name" in params
         assert "active" in params
 
+    def test_extract_docstring_params_google_stops_at_next_section(self):
+        """Indented docstrings must not leak Returns/Raises or wrapped lines into params."""
+        from ast_grep_mcp.features.documentation.sync_checker import (
+            _extract_docstring_params,
+        )
+
+        docstring = '''"""Do something.
+
+        Args:
+            a: First value, described at length so that it
+                wraps onto: a continuation line.
+
+            b (int): Second value.
+
+        Returns:
+            Sum of a and b.
+
+        Raises:
+            ValueError: If a is negative.
+        """'''
+
+        assert _extract_docstring_params(docstring, "python") == ["a", "b"]
+
     def test_extract_docstring_params_sphinx(self):
         """Test extracting params from Sphinx-style docstrings."""
         from ast_grep_mcp.features.documentation.sync_checker import (
