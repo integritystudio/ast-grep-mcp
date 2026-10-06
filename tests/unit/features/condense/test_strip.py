@@ -1,5 +1,7 @@
 """Tests for dead code stripping."""
 
+import ast
+
 from ast_grep_mcp.features.condense.strip import (
     _strip_js_ts,
     _strip_python,
@@ -98,3 +100,39 @@ class TestStripPython:
         lines = ["result = print_to_file(x)"]
         kept, removed = _strip_python(lines)
         assert removed == 0
+
+
+class TestStripKeepsBlocksValid:
+    """Removing a block's only statement must not break syntax or control flow."""
+
+    def test_python_sole_print_in_block_becomes_pass(self) -> None:
+        source = "def f(x):\n    if x:\n        print(x)\n    else:\n        return 1\n"
+        stripped, _ = strip_dead_code(source, "python")
+        ast.parse(stripped)
+        assert "        pass" in stripped
+
+
+    def test_python_block_of_only_debug_lines_at_eof(self) -> None:
+        source = "for i in range(3):\n    print(i)\n    breakpoint()\n"
+        stripped, _ = strip_dead_code(source, "python")
+        ast.parse(stripped)
+
+
+    def test_python_print_with_siblings_is_removed(self) -> None:
+        source = "def f(x):\n    print(x)\n    return x\n"
+        stripped, removed = strip_dead_code(source, "python")
+        assert stripped == "def f(x):\n    return x"
+        assert removed == 1
+
+
+    def test_js_braceless_if_body_is_kept_as_empty_statement(self) -> None:
+        source = "function f(err, v) {\n  if (err)\n    console.error(err);\n  return v;\n}"
+        stripped, _ = strip_dead_code(source, "javascript")
+        assert "  if (err)\n    ;\n  return v;" in stripped
+
+
+    def test_js_console_in_braced_block_is_removed(self) -> None:
+        source = "if (err) {\n  console.error(err);\n}\nreturn v;"
+        stripped, removed = strip_dead_code(source, "javascript")
+        assert stripped == "if (err) {\n}\nreturn v;"
+        assert removed == 1
