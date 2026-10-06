@@ -23,6 +23,11 @@ from ast_grep_mcp.models.documentation import (
 
 logger = get_logger(__name__)
 
+_GIT_FIELD_SEP = "\x1f"
+_GIT_RECORD_SEP = "\x1e"
+_GIT_FIELD_SEP_FORMAT = "%x1f"
+_GIT_RECORD_SEP_FORMAT = "%x1e"
+
 
 # =============================================================================
 # Git Operations
@@ -163,28 +168,28 @@ def _get_commits(
     """
     commits: list[CommitInfo] = []
 
-    # Format: hash|full_hash|author|email|date|subject|body
-    log_format = "%h|%H|%an|%ae|%aI|%s|%b"
-    separator = "---COMMIT---"
+    # Fields: hash, full_hash, author, email, date, subject, body. ASCII unit/record
+    # separators cannot occur in commit text, unlike "|" in a subject or author name.
+    log_format = _GIT_FIELD_SEP_FORMAT.join(["%h", "%H", "%an", "%ae", "%aI", "%s", "%b"])
 
     if from_ref:
         range_arg = f"{from_ref}..{to_ref}"
     else:
         range_arg = to_ref
 
-    success, output = _run_git_command(project_folder, ["log", range_arg, f"--format={log_format}{separator}"])
+    success, output = _run_git_command(project_folder, ["log", range_arg, f"--format={log_format}{_GIT_RECORD_SEP_FORMAT}"])
 
     if not success:
         logger.warning("git_log_failed", output=output)
         return commits
 
     # Parse commits
-    for commit_str in output.split(separator):
+    for commit_str in output.split(_GIT_RECORD_SEP):
         commit_str = commit_str.strip()
         if not commit_str:
             continue
 
-        parts = commit_str.split("|", ChangelogDefaults.COMMIT_PARTS_COUNT)
+        parts = commit_str.split(_GIT_FIELD_SEP, ChangelogDefaults.COMMIT_PARTS_COUNT)
         if len(parts) < ChangelogDefaults.COMMIT_PARTS_COUNT:
             continue
 

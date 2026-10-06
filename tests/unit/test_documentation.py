@@ -758,6 +758,30 @@ class TestChangelogHelpers:
         assert "Directory not found" in message
 
 
+class TestGetCommitsParsing:
+    """Commit fields must survive '|' in subjects and author names."""
+
+    def test_pipe_in_subject_and_author(self, tmp_path):
+        import subprocess
+
+        from ast_grep_mcp.features.documentation.changelog_generator import _get_commits
+
+        def git(*args: str) -> None:
+            subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+        git("init", "-q")
+        (tmp_path / "f.txt").write_text("x\n")
+        git("add", "f.txt")
+        git("-c", "user.name=A|B", "-c", "user.email=a@b.c", "commit", "-q", "-m", "fix: handle a|b", "-m", "body ---COMMIT--- text")
+
+        [commit] = _get_commits(str(tmp_path), "", "HEAD")
+
+        assert commit.message == "fix: handle a|b"
+        assert commit.author == "A|B"
+        assert commit.author_email == "a@b.c"
+        assert commit.body == "body ---COMMIT--- text"
+
+
 class TestChangelogGenerator:
     """Tests for changelog generation."""
 
