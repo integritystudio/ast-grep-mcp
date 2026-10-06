@@ -286,6 +286,12 @@ class TestMultiLanguageSearch:
         # Note: "class" maps to the class pattern key
         assert result in ["class", "function"]  # Depends on word order in mappings
 
+    def test_parse_semantic_query_matches_whole_words(self):
+        """Terms must not match inside longer words."""
+        assert _parse_semantic_query("foreach over items") == "foreach"
+        assert _parse_semantic_query("modify the record") == "function"
+        assert _parse_semantic_query("nested loops") == "for_loop"
+
     def test_parse_semantic_query_try_catch(self):
         """Test semantic query parsing for error handling."""
         result = _parse_semantic_query("try catch exception")

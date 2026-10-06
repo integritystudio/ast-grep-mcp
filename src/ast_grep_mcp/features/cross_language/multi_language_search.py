@@ -6,6 +6,7 @@ languages simultaneously using semantic patterns.
 
 import json as json_module
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -243,8 +244,9 @@ def _parse_semantic_query(query: str) -> str:
     """Parse a semantic query to find the best matching pattern key."""
     query_lower = query.lower()
 
+    # Whole words (plural allowed): "foreach" is not "for", "modify" is not "if"
     for term, pattern_key in QUERY_TERM_MAPPINGS.items():
-        if term in query_lower:
+        if re.search(rf"\b{re.escape(term)}(?:e?s)?\b", query_lower):
             return pattern_key
 
     return "function"
