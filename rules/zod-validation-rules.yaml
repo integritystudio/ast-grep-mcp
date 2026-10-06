@@ -15,7 +15,11 @@ severity: error
 id: require-schema-suffix
 language: typescript
 rule:
-  pattern: const $NAME = z.object($$ARGS)
+  pattern: const $NAME = z.object($$$ARGS)
+constraints:
+  NAME:
+    not:
+      regex: Schema$
 message: Schema variables must end with 'Schema' suffix
 severity: warning
 
@@ -24,7 +28,7 @@ severity: warning
 id: require-error-message
 language: typescript
 rule:
-  pattern: $SCHEMA.refine($$ARGS)
+  pattern: $SCHEMA.refine($$$ARGS)
 message: refine() must include error message in second argument
 severity: error
 
@@ -52,7 +56,7 @@ id: no-unknown-schema
 language: typescript
 rule:
   pattern: z.unknown()
-message: Avoid z.unknown() - use z.any() or a specific type instead
+message: Avoid z.unknown() where the shape is known - use a specific schema (never z.any(), see no-any-schema)
 severity: warning
 
 ---
@@ -70,7 +74,9 @@ id: prefer-string-schema-with-trim
 language: typescript
 rule:
   pattern: z.string()
-  inside: z.object($$ARGS)
+  inside:
+    pattern: z.object($$$ARGS)
+    stopBy: end
 message: Consider adding .trim() to string schemas to prevent accidental whitespace
 severity: info
 

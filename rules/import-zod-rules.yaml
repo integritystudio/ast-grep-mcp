@@ -55,7 +55,12 @@ severity: warning
 id: import-zod-subpath-to-namespace
 language: typescript
 rule:
-  pattern: import { z } from "zod/$$SUBPATH"
+  kind: import_statement
+  regex: ^import\s*\{\s*z\s*\}
+  has:
+    field: source
+    pattern: $SRC
+    regex: ^["']zod/
 message: 'Use namespace import for zod subpath: import * as z from "zod/..."'
 severity: warning
 
@@ -68,8 +73,7 @@ rule:
 message: 'Use namespace import for z: import type * as z from "zod"'
 severity: warning
 
----
-# Rule 8: Non-z exports are OK (this is a negative pattern)
+# Note (not a rule): non-z exports are OK
 # Valid: import { ZodError } from "zod"
 # Valid: import type { ZodError } from "zod"
 # These don't need to be namespace imports

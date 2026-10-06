@@ -48,14 +48,6 @@ fix: $SCHEMA.default($VAL)
 message: "Don't use both .optional() and .default() - just use .default()"
 severity: error
 """,
-    "no-unknown-schema": """id: no-unknown-schema
-language: typescript
-rule:
-  pattern: z.unknown()
-fix: z.any()
-message: "Avoid z.unknown() - use z.any() or a specific type instead"
-severity: warning
-""",
     "no-string-schema-with-uuid": """id: no-string-schema-with-uuid
 language: typescript
 rule:
@@ -120,8 +112,13 @@ severity: warning
     "import-zod-subpath-to-namespace": """id: import-zod-subpath-to-namespace
 language: typescript
 rule:
-  pattern: import { z } from "zod/$$SUBPATH"
-fix: import * as z from "zod/$$SUBPATH"
+  kind: import_statement
+  regex: ^import\s*\{\s*z\s*\}
+  has:
+    field: source
+    pattern: $SRC
+    regex: ^["']zod/
+fix: import * as z from $SRC;
 message: "Use namespace import for zod subpath"
 severity: warning
 """,
@@ -165,7 +162,6 @@ def list_schema_rules() -> Dict[str, str]:
         "require-error-message": "Require error message in refine() callbacks",
         "prefer-enum-over-literal-union": "Use z.enum() instead of union of literals",
         "no-optional-and-default-together": "Don't use both .optional() and .default()",
-        "no-unknown-schema": "Avoid z.unknown() - use specific type or z.any()",
         "no-string-schema-with-uuid": "Use z.uuid() instead of z.string().uuid()",
         "prefer-string-schema-with-trim": "Add .trim() to string schemas in objects",
         "no-empty-custom-schema": "Require implementation function in z.custom()",
