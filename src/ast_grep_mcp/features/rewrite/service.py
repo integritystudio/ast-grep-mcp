@@ -1,5 +1,6 @@
 """Rewrite feature service - implements code transformation functionality."""
 
+import json
 import os
 import re
 import tempfile
@@ -25,6 +26,7 @@ from ast_grep_mcp.features.rewrite.backup import (
 from ast_grep_mcp.utils.subprocess_runner import TOOL_NOT_FOUND, run_tool
 
 _TSC_ERROR_PATTERN: Pattern[str] = re.compile(SyntaxValidationDefaults.TSC_SYNTAX_ERROR_PATTERN)
+_JSX_NODE_KINDS = ["jsx_element", "jsx_self_closing_element"]
 
 
 def _validate_python_syntax(content: str, file_path: str) -> Dict[str, Any]:
@@ -58,6 +60,28 @@ def _run_node_check(tmp_path: str) -> Dict[str, Any]:
     if result.returncode != 0:
         return {"valid": False, "error": _parse_node_error(result.stderr)}
     return {"valid": True, "error": None}
+
+
+def _count_tree_sitter_nodes(file_path: str, kinds: List[str]) -> int:
+    """Count nodes of the given kinds in file_path, parsed with ast-grep's JavaScript (JSX-aware) grammar."""
+    rule = yaml.dump({"id": "syntax-check", "language": "javascript", "rule": {"any": [{"kind": k} for k in kinds]}})
+    output = run_ast_grep("scan", ["--inline-rules", rule, "--json", file_path]).stdout.strip()
+    return len(json.loads(output)) if output else 0
+
+
+def _validate_jsx_syntax(file_path: str) -> Dict[str, Any]:
+    """Validate JSX via tree-sitter ERROR nodes; node --check cannot parse JSX."""
+    if _count_tree_sitter_nodes(file_path, ["ERROR"]):
+        return {"valid": False, "error": "Syntax error (tree-sitter ERROR node)"}
+    return {"valid": True, "error": None}
+
+
+def _validate_javascript_file(content: str, file_path: str) -> Dict[str, Any]:
+    """node --check, deferring to the JSX-aware check when the file contains JSX."""
+    validation = _validate_javascript_syntax(content)
+    if not validation["valid"] and _count_tree_sitter_nodes(file_path, _JSX_NODE_KINDS):
+        return _validate_jsx_syntax(file_path)
+    return validation
 
 
 def _validate_javascript_syntax(content: str) -> Dict[str, Any]:
@@ -171,10 +195,10 @@ def validate_syntax(file_path: str, language: str) -> Dict[str, Any]:
         # Language-specific validators
         validators: Dict[str, Callable[[], Dict[str, Any]]] = {
             "python": lambda: _validate_python_syntax(content, file_path),
-            "javascript": lambda: _validate_javascript_syntax(content),
+            "javascript": lambda: _validate_javascript_file(content, file_path),
             "typescript": lambda: _validate_typescript_syntax(file_path),
             "tsx": lambda: _validate_typescript_syntax(file_path),
-            "jsx": lambda: _validate_javascript_syntax(content),
+            "jsx": lambda: _validate_jsx_syntax(file_path),
             "java": lambda: _validate_java_syntax(file_path),
         }
 
@@ -213,13 +237,11 @@ def validate_rewrites(modified_files: List[str], language: str) -> Dict[str, Any
         result = validate_syntax(file_path, language)
         validation_results.append(result)
 
-        if not result["valid"]:
-            if result["error"] and "not supported" in result["error"]:
-                skipped_count += 1
-            elif result["error"] and "skipped" in result["error"]:
-                skipped_count += 1
-            else:
-                failed_count += 1
+        error = result["error"] or ""
+        if "not supported" in error or "skipped" in error:
+            skipped_count += 1
+        elif not result["valid"]:
+            failed_count += 1
 
     return {
         "validated": len(modified_files),
