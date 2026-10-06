@@ -313,6 +313,7 @@ class PolyglotRefactoringResult:
         validation_passed: Whether validation passed
         validation_errors: Any validation errors
         execution_time_ms: Execution time
+        backup_id: Backup of the modified files, for rollback (None on dry run)
     """
 
     plan: PolyglotRefactoringPlan
@@ -322,6 +323,7 @@ class PolyglotRefactoringResult:
     validation_passed: bool = True
     validation_errors: List[str] = field(default_factory=list)
     execution_time_ms: int = 0
+    backup_id: Optional[str] = None
 
 
 # =============================================================================

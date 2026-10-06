@@ -10,8 +10,9 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from ast_grep_mcp.constants import LANGUAGE_EXTENSIONS, ConversionFactors, DisplayDefaults
+from ast_grep_mcp.constants import LANGUAGE_EXTENSIONS, BackupDefaults, ConversionFactors, DisplayDefaults, FilePatterns
 from ast_grep_mcp.core.logging import get_logger
+from ast_grep_mcp.features.rewrite.backup import create_backup
 from ast_grep_mcp.models.cross_language import (
     SUPPORTED_LANGUAGES,
     PolyglotChange,
@@ -19,6 +20,7 @@ from ast_grep_mcp.models.cross_language import (
     PolyglotRefactoringResult,
     RefactoringType,
 )
+from ast_grep_mcp.utils.file_discovery import find_source_files
 from ast_grep_mcp.utils.text import read_file_lines, write_file_lines
 
 logger = get_logger(__name__)
@@ -78,19 +80,19 @@ REFACTORING_TYPE_ALIASES: Dict[str, str] = {
 # =============================================================================
 
 
+# Vendored code, environments and our own backups must never be rewritten.
+_SKIP_DIR_NAMES = FilePatterns.SKIP_DIR_NAMES | {BackupDefaults.DIR_NAME}
+
+
 def _find_files_with_language(
     project_folder: str,
     languages: List[str],
 ) -> Dict[str, List[str]]:
     """Find files for each language in a project."""
     result: Dict[str, List[str]] = {}
-    project_path = Path(project_folder)
-
     for lang in languages:
         extensions = LANGUAGE_EXTENSIONS.get(lang, [])
-        files: list[str] = []
-        for ext in extensions:
-            files.extend(str(f) for f in project_path.rglob(f"*{ext}"))
+        files = [str(f) for f in find_source_files(project_folder, lang, extensions=extensions, skip_dir_names=_SKIP_DIR_NAMES)]
         if files:
             result[lang] = files
 
@@ -282,18 +284,19 @@ def _apply_changes_to_file(file_path: str, file_changes: List[PolyglotChange]) -
         return False
 
 
-def _apply_changes(changes: List[PolyglotChange]) -> List[str]:
-    """Apply changes to files."""
+def _apply_changes(changes: List[PolyglotChange], project_folder: str) -> Tuple[List[str], str]:
+    """Back up the affected files, then apply changes. Returns (modified files, backup id)."""
     changes_by_file: Dict[str, List[PolyglotChange]] = {}
     for change in changes:
         changes_by_file.setdefault(change.file_path, []).append(change)
 
+    backup_id = create_backup(list(changes_by_file), project_folder)
     modified_files = []
     for file_path, file_changes in changes_by_file.items():
         if _apply_changes_to_file(file_path, file_changes):
             modified_files.append(file_path)
 
-    return modified_files
+    return modified_files, backup_id
 
 
 # =============================================================================
@@ -391,9 +394,10 @@ def refactor_polyglot_impl(
     validation_passed, validation_errors = _validate_changes(all_changes, project_folder)
 
     files_modified: List[str] = []
+    backup_id: Optional[str] = None
     should_apply = not dry_run and validation_passed and all_changes
     if should_apply:
-        files_modified = _apply_changes(all_changes)
+        files_modified, backup_id = _apply_changes(all_changes, project_folder)
 
     return PolyglotRefactoringResult(
         plan=plan,
@@ -403,4 +407,5 @@ def refactor_polyglot_impl(
         validation_passed=validation_passed,
         validation_errors=validation_errors,
         execution_time_ms=int((time.time() - start_time) * ConversionFactors.MILLISECONDS_PER_SECOND),
+        backup_id=backup_id,
     )

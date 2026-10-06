@@ -245,6 +245,7 @@ def _format_polyglot_result(result: Any) -> Dict[str, Any]:
         "validation_passed": result.validation_passed,
         "validation_errors": result.validation_errors,
         "execution_time_ms": result.execution_time_ms,
+        "backup_id": result.backup_id,
     }
 
 

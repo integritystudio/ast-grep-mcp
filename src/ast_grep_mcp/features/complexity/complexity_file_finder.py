@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Set
 
 from ...core.logging import get_logger
+from ...utils.file_discovery import matches_glob
 
 
 class ComplexityFileFinder:
@@ -50,7 +51,7 @@ class ComplexityFileFinder:
         all_files = self._find_matching_files(project_path, include_patterns, extensions)
 
         # Filter excluded files
-        files_to_analyze = self._filter_excluded_files(all_files, exclude_patterns)
+        files_to_analyze = self._filter_excluded_files(all_files, exclude_patterns, project_path)
 
         self.logger.info("find_files_complete", total_found=len(all_files), after_exclusion=len(files_to_analyze))
 
@@ -85,13 +86,6 @@ class ComplexityFileFinder:
                 all_files.update(glob.glob(glob_pattern, recursive=True))
         return all_files
 
-    def _is_excluded(self, file_path: str, exclude_patterns: List[str]) -> bool:
-        for exclude_pattern in exclude_patterns:
-            parts = exclude_pattern.replace("**", "").replace("*", "").split("/")
-            if any(part in file_path for part in parts if part):
-                return True
-        return False
-
-    def _filter_excluded_files(self, all_files: Set[str], exclude_patterns: List[str]) -> List[str]:
-        """Filter out files matching exclusion patterns."""
-        return [f for f in all_files if not self._is_excluded(f, exclude_patterns)]
+    def _filter_excluded_files(self, all_files: Set[str], exclude_patterns: List[str], project_path: Path) -> List[str]:
+        """Filter out files matching exclusion patterns (relative to the project root)."""
+        return [f for f in all_files if not any(matches_glob(f, p, project_path) for p in exclude_patterns)]

@@ -10,9 +10,8 @@ This module provides functionality to execute linting rules against a codebase:
 
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from fnmatch import fnmatch
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set
 
 import sentry_sdk
 import yaml
@@ -22,7 +21,7 @@ from ast_grep_mcp.core.executor import stream_ast_grep_results
 from ast_grep_mcp.core.logging import get_logger
 from ast_grep_mcp.features.quality.rules import RULE_TEMPLATES, load_rules_from_project
 from ast_grep_mcp.models.standards import EnforcementResult, LintingRule, RuleExecutionContext, RuleSet, RuleTemplate, RuleViolation
-from ast_grep_mcp.utils.file_discovery import find_source_files
+from ast_grep_mcp.utils.file_discovery import find_source_files, matches_glob
 
 # =============================================================================
 # Built-in Rule Sets
@@ -297,31 +296,24 @@ def parse_match_to_violation(match: Dict[str, Any], rule: LintingRule) -> RuleVi
     )
 
 
-def _matches_glob_pattern(file_path: str, pattern: str) -> bool:
-    """Check if file_path matches a single glob pattern."""
-    if "**" in pattern:
-        parts = [p.strip("/") for p in pattern.split("**") if p.strip("/")]
-        return any(part in file_path for part in parts)
-    return fnmatch(file_path, pattern) or fnmatch(str(Path(file_path).name), pattern)
-
-
-def should_exclude_file(file_path: str, exclude_patterns: List[str]) -> bool:
+def should_exclude_file(file_path: str, exclude_patterns: List[str], project_folder: Optional[str] = None) -> bool:
     """Check if file should be excluded based on patterns.
 
     Args:
         file_path: Absolute file path
         exclude_patterns: List of glob patterns to exclude
+        project_folder: Project root; patterns match the path relative to it
 
     Returns:
         True if file should be excluded
     """
-    return any(_matches_glob_pattern(file_path, pattern) for pattern in exclude_patterns)
+    return any(matches_glob(file_path, pattern, project_folder) for pattern in exclude_patterns)
 
 
-def _is_excluded(file_path: str, context_patterns: List[str], rule_patterns: List[str]) -> bool:
-    if should_exclude_file(file_path, context_patterns):
+def _is_excluded(file_path: str, context_patterns: List[str], rule_patterns: List[str], project_folder: str) -> bool:
+    if should_exclude_file(file_path, context_patterns, project_folder):
         return True
-    return bool(rule_patterns) and should_exclude_file(file_path, rule_patterns)
+    return bool(rule_patterns) and should_exclude_file(file_path, rule_patterns, project_folder)
 
 
 def _collect_violations(matches: List[Dict[str, Any]], rule: LintingRule, context: RuleExecutionContext) -> List[RuleViolation]:
@@ -330,7 +322,7 @@ def _collect_violations(matches: List[Dict[str, Any]], rule: LintingRule, contex
     rule_excludes = rule.exclude_files or []
     for match in matches:
         violation = parse_match_to_violation(match, rule)
-        if _is_excluded(violation.file, context.exclude_patterns, rule_excludes):
+        if _is_excluded(violation.file, context.exclude_patterns, rule_excludes, context.project_folder):
             continue
         violations.append(violation)
         if context.max_violations > 0 and len(violations) >= context.max_violations:

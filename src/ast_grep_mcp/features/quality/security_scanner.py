@@ -378,16 +378,17 @@ def _get_language_extensions(language: str) -> List[str]:
     return extensions.get(language, [".py", ".js", ".ts", ".java"])
 
 
-def _should_skip_file(file_path: Path) -> bool:
+def _should_skip_file(file_path: Path, project_path: Path) -> bool:
     """Check if a file should be skipped during scanning.
 
     Args:
         file_path: Path to check
+        project_path: Project root; only directories below it are considered
 
     Returns:
-        True if file should be skipped
+        True if file lies under a skipped directory (whole path segments, not substrings)
     """
-    return any(part in str(file_path) for part in FilePatterns.SKIP_DIR_NAMES)
+    return any(part in FilePatterns.SKIP_DIR_NAMES for part in file_path.relative_to(project_path).parts[:-1])
 
 
 def _scan_files_for_secrets(project_path: Path, ext: str) -> List[SecurityIssue]:
@@ -403,7 +404,7 @@ def _scan_files_for_secrets(project_path: Path, ext: str) -> List[SecurityIssue]
     issues = []
 
     for file_path in project_path.rglob(f"*{ext}"):
-        if _should_skip_file(file_path):
+        if _should_skip_file(file_path, project_path):
             continue
 
         file_issues = _scan_single_file_for_secrets(file_path)
