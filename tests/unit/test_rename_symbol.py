@@ -268,6 +268,32 @@ def foo():
         assert not ref.is_export
 
 
+class TestScopeTreeSymbols:
+    """build_scope_tree must record what each scope defines, or conflict checks never fire."""
+
+    def test_python_conflict_detected_from_real_scope_tree(self, python_renamer, tmp_path):
+        test_file = tmp_path / "test.py"
+        test_file.write_text("import os\n\n\ndef foo(arg):\n    x = 1\n    y = 2\n    return x + y + arg\n")
+
+        scopes = python_renamer.build_scope_tree(str(test_file))
+        by_name = {s.scope_name: s.defined_symbols for s in scopes}
+        assert by_name["<module>"] == {"os", "foo"}
+        assert by_name["foo"] == {"arg", "x", "y"}
+
+        ref = SymbolReference(file_path=str(test_file), line=5, column=4, context="x = 1", scope="foo")
+        conflicts = python_renamer.check_naming_conflicts([ref], "y", {str(test_file): scopes})
+        assert len(conflicts) == 1
+
+    def test_typescript_declarations_recorded(self, typescript_renamer, tmp_path):
+        test_file = tmp_path / "test.ts"
+        test_file.write_text("const total = 1;\nexport function sum(a: number) {\n  let acc = 0;\n  return acc + a;\n}\n")
+
+        scopes = typescript_renamer.build_scope_tree(str(test_file))
+        by_name = {s.scope_name: s.defined_symbols for s in scopes}
+        assert by_name["<module>"] == {"total", "sum"}
+        assert by_name["sum"] == {"acc"}
+
+
 class TestRenameCoordinator:
     """Tests for RenameCoordinator class."""
 

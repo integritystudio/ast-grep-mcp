@@ -8,6 +8,7 @@ This module handles safe symbol renaming across files:
 - Detecting conflicts
 """
 
+import ast
 import os
 import re
 from typing import Any, Callable, Dict, List, Optional
@@ -23,6 +24,9 @@ from ...models.refactoring import (
 from ...utils.text import read_file_lines
 
 logger = get_logger(__name__)
+
+_JS_VARIABLE_DECL = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)")
+_JS_SCOPE_DECL = re.compile(r"\b(?:function|class)\s+([A-Za-z_$][\w$]*)")
 
 
 class SymbolRenamer:
@@ -325,8 +329,10 @@ class SymbolRenamer:
 
             if self.language == "python":
                 scopes = self._build_python_scope_tree(lines)
+                self._collect_python_symbols(scopes, "\n".join(lines))
             elif self.language in ("typescript", "javascript"):
                 scopes = self._build_js_scope_tree(lines)
+                self._collect_js_symbols(scopes, lines)
 
         except Exception as e:
             logger.error("build_scope_tree_failed", error=str(e), file_path=file_path)
@@ -449,6 +455,42 @@ class SymbolRenamer:
                 scopes.append(scope)
 
         return scopes
+
+    def _add_symbol(self, scopes: List[ScopeInfo], name: str, line: int, *, declares_scope: bool) -> None:
+        """Record name in the innermost scope containing line.
+
+        A def/class line starts its own scope, but its name is bound in the enclosing one.
+        """
+        candidates = [s for s in scopes if s.start_line != line] if declares_scope else scopes
+        scope = self._find_scope_for_line(candidates, line)
+        if scope is not None:
+            scope.defined_symbols.add(name)
+
+    def _collect_python_symbols(self, scopes: List[ScopeInfo], source: str) -> None:
+        """Fill defined_symbols from Python bindings (defs, classes, args, assignments, imports)."""
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                self._add_symbol(scopes, node.name, node.lineno, declares_scope=True)
+            elif isinstance(node, ast.arg):
+                self._add_symbol(scopes, node.arg, node.lineno, declares_scope=False)
+            elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+                self._add_symbol(scopes, node.id, node.lineno, declares_scope=False)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    bound = alias.asname or alias.name.split(".")[0]
+                    self._add_symbol(scopes, bound, node.lineno, declares_scope=False)
+
+    def _collect_js_symbols(self, scopes: List[ScopeInfo], lines: List[str]) -> None:
+        """Fill defined_symbols from JS/TS declarations (const/let/var, function, class)."""
+        for i, line in enumerate(lines, start=1):
+            for match in _JS_VARIABLE_DECL.finditer(line):
+                self._add_symbol(scopes, match.group(1), i, declares_scope=False)
+            for match in _JS_SCOPE_DECL.finditer(line):
+                self._add_symbol(scopes, match.group(1), i, declares_scope=True)
 
     def _find_scope_end(self, lines: List[str], start_line: int, base_indent: int) -> int:
         """Find end of Python scope based on indentation.
